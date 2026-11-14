@@ -195,7 +195,8 @@ def submit_slip(invoice,proof,reference,amount,transfer_date):
         'provider_account':account.name,'proof_file':file.name,'proof_hash':digest,'reference':str(reference).strip(),
         'claimed_minor':money_minor(amount),'transfer_date':transfer_date,'status':'Pending'}))
     file.attached_to_doctype='IL Bank Slip';file.attached_to_name=slip.name;file.save(ignore_permissions=True)
-    notify_people(room,'payment.slip','slip:'+slip.name,'A bank payment slip is awaiting review for '+room.title)
+    notify_people(room,'payment.slip','slip:'+slip.name,
+        'Bank payment slip for '+room.title+' (reference '+slip.reference+') is awaiting teacher or institute approval.',m.name)
     return {'name':slip.name,'status':'Pending'}
 
 def reviewer(slip):

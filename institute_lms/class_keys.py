@@ -58,6 +58,9 @@ def redeem(classroom,key):
         access.status='Active';access.enrollment_key_hash=None;save(access)
         queue(frappe.session.user,'enrollment-complete:'+access.name,'Enrollment successful',
               'You are enrolled in '+room.title+'. Open My classrooms to view your classroom.')
+        from .commercial import notify_people
+        notify_people(room,'enrollment.completed','enrollment-complete:'+access.name,
+            (frappe.db.get_value('IL Member',member.name,'full_name') or member.name)+' has joined '+room.title+' after payment approval. Class access is now active.')
         return {'enrolled':True}
     frappe.throw('This key is invalid, already used, or belongs to another student.')
 

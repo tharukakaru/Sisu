@@ -83,4 +83,7 @@ def join_class(classroom):
     from .api import create_enrollment
     fee=0 if room.fee_mode=='Free' else room.fee
     name=create_enrollment(inst,room,member,[{'amount':fee,'due_date':today()}] if fee else [])
+    from .commercial import notify_people
+    notify_people(room,'enrollment.requested','enrollment-request:'+name,
+        member.full_name+' joined '+room.title+'. '+('Payment is pending; review their slip when submitted.' if fee else 'This class is free.'))
     return {'enrollment':name,'existing':False}

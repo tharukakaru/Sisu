@@ -3,6 +3,11 @@ import hashlib
 from html import escape
 import frappe
 
+def local_demo(user):
+    from .signup_environment import local_signup_allowed
+    config=getattr(frappe,'conf',{})
+    return user.endswith('@demo.sisu.test') and local_signup_allowed(config,config.get('host_name'))
+
 def queue(user,reference,subject,body):
     site=getattr(frappe.local,'site',None)
     if site not in ('sisuacademylk.com','staging.sisuacademylk.com'):return
@@ -11,13 +16,17 @@ def queue(user,reference,subject,body):
     if frappe.db.exists('Notification Log',name):return
     frappe.get_doc({'doctype':'Notification Log','for_user':user,'type':'Alert','subject':subject,
         'email_content':escape(body)}).insert(ignore_permissions=True,set_name=name)
-    if site=='staging.sisuacademylk.com':return  # Test keys available in-app; no external test messages.
+    if site=='staging.sisuacademylk.com' or local_demo(user):return  # Test keys stay in-app.
     frappe.enqueue('institute_lms.account_confirmations.deliver',notice=name,enqueue_after_commit=True)
 
 def deliver(notice):
     if getattr(frappe.local,'site',None)!='sisuacademylk.com':return
     log=frappe.get_doc('Notification Log',notice)
     user=log.for_user
+    # Local synthetic accounts must never deliver receipts to external services.
+    # Keep the in-app notice (including enrollment keys) available for QA.
+    if local_demo(user):
+        return
     from html import unescape
     body=unescape(log.email_content or '')
     phone=frappe.db.get_value('IL Verified Phone',{'user':user},'phone')
