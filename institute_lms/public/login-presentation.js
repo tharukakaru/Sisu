@@ -52,6 +52,92 @@
       document.title = reset ? 'Set your password | SISU' : 'Platform owner sign in | SISU';
       if (heading && !reset) heading.textContent = 'Platform owner sign in';
       if (intro && !reset) intro.textContent = 'Manage SISU organizations, subscriptions and platform settings.';
+      window.frappe?.ready(() => {
+        const handlers = window.login?.login_handlers;
+        if (!handlers) return;
+        const nativeError = handlers[401];
+        let timer, retryUntil = 0;
+        const password = login.querySelector('#login_password');
+        password?.form?.addEventListener('submit', event => {
+          if (Date.now() < retryUntil) { event.preventDefault(); event.stopImmediatePropagation(); }
+        }, true);
+        handlers[401] = function (xhr, data) {
+          const response = xhr?.responseJSON || data || xhr;
+          const seconds = Number(response?.mfa_retry_after_seconds);
+          if (!Number.isFinite(seconds) || seconds < 1 || seconds > 60) return nativeError(xhr, data);
+          window.login.hide_loading();
+          login.querySelector('.login-error-banner')?.classList.add('hidden');
+          let notice = login.querySelector('.sisu-mfa-cooldown');
+          if (!notice && password) {
+            notice = document.createElement('p');
+            notice.className = 'sisu-mfa-cooldown';
+            notice.setAttribute('role', 'status');
+            (password.closest('.form-group') || password.parentElement).after(notice);
+          }
+          const submit = password?.form?.querySelector('.btn-login, button[type="submit"], .es-button[data-variant="solid"]');
+          retryUntil = Date.now() + seconds * 1000;
+          clearInterval(timer);
+          function tick() {
+            const remaining = Math.max(0, Math.ceil((retryUntil - Date.now()) / 1000));
+            if (notice) notice.textContent = remaining ? `You can request another code in 00:${String(remaining).padStart(2, '0')}.` : 'You can request a new code now. Select Continue.';
+            if (submit) submit.disabled = remaining > 0;
+            if (!remaining) clearInterval(timer);
+          }
+          tick(); timer = setInterval(tick, 1000);
+        };
+      });
+      // Frappe inserts the OTP form after the password request. Enhance that
+      // existing form without replacing its input, submit button or listeners.
+      function decorateVerification() {
+        const panel = login.querySelector('#twofactor_div');
+        document.body.classList.toggle('sisu-mfa-screen', !!panel);
+        if (!panel || panel.dataset.sisuMfa) return;
+        const input = panel.querySelector('#login_token');
+        const button = panel.querySelector('#verify_token');
+        if (!input || !button) return;
+        panel.dataset.sisuMfa = '1';
+        const head = panel.querySelector('.page-card-head');
+        if (head) {
+          head.replaceChildren();
+          const title = document.createElement('h2');
+          title.textContent = 'Verify your sign-in';
+          const description = document.createElement('p');
+          description.textContent = 'One more step to open your admin workspace.';
+          head.append(title, description);
+        }
+        const label = document.createElement('label');
+        label.htmlFor = input.id;
+        label.className = 'sisu-mfa-label';
+        label.textContent = 'SMS verification code';
+        input.before(label);
+        input.inputMode = 'numeric';
+        input.autocomplete = 'one-time-code';
+        input.maxLength = 6;
+        input.pattern = '[0-9]{6}';
+        input.placeholder = '••••••';
+        input.setAttribute('aria-describedby', 'sisu-mfa-hint');
+        input.addEventListener('input', () => { input.value = input.value.replace(/\D/g, '').slice(0, 6); });
+        input.addEventListener('paste', event => {
+          const digits = event.clipboardData?.getData('text').replace(/\D/g, '');
+          if (digits?.length === 6) { event.preventDefault(); input.value = digits; input.dispatchEvent(new Event('input', { bubbles: true })); }
+        });
+        const hint = document.createElement('p');
+        hint.id = 'sisu-mfa-hint';
+        hint.textContent = 'Enter or paste the 6-digit code. It expires in 5 minutes.';
+        input.after(hint);
+        button.type = 'submit';
+        button.textContent = 'Verify and sign in';
+        const back = document.createElement('a');
+        back.className = 'sisu-mfa-back';
+        back.href = '/login?redirect-to=/campus';
+        back.textContent = 'Back to sign in';
+        const help = document.createElement('p');
+        help.className = 'sisu-mfa-help';
+        help.textContent = 'Need a new code? Go back and sign in again after one minute.';
+        panel.append(back, help);
+      }
+      new MutationObserver(decorateVerification).observe(login, { childList: true, subtree: true });
+      decorateVerification();
     }
   }
   // This script is included after the native forms. Layout is already rendered by Jinja.

@@ -2,6 +2,7 @@
 import ExistingAccountDialog from './ExistingAccountDialog.vue'
 import {googleSignupEntry} from './existingAccount'
 import ProviderFirstLogin from './ProviderFirstLogin.vue'
+import ProviderOnboardingStatus from './ProviderOnboardingStatus.vue'
 import PageLoading from '../PageLoading.vue'
 import CampusSwitcher from './CampusSwitcher.vue'
 import PasswordConfirmation from './PasswordConfirmation.vue'
@@ -114,6 +115,8 @@ onMounted(()=>{if(!firebaseTestPage&&!passwordConfirmation){connect();request('p
     <details v-if="session.shared_campus" class="teacher-approved-workspaces"><summary>Open an approved teaching workspace</summary><CampusSwitcher provider @opening="continueIndividually"/></details>
     <button v-else-if="session.member" type="button" class="entry-secondary" @click="continueIndividually">Open my current workspace</button>
   </ProviderAccessGate>
+
+  <ProviderOnboardingStatus v-else-if="session?.shared_campus&&!session.member&&session.provider_onboarding_required===false&&['Teacher','Institute'].includes(session.onboarding_kind)" :session="session" @changed="connect"/>
 
   <ProviderAccessGate v-else-if="session?.member&&session.role!=='Student'&&(!subscription||(subscription.workspace_available??subscription.available)===false)" key="workspace-access" :role="session.role" :initial-individual="session.role==='Teacher'" :checking="busy" :error="error" @changed="connect"/><AccountSubscription v-else-if="session?.member&&session.role!=='Student'&&(!subscription||(subscription.workspace_available??subscription.available)===false)" standalone @changed="connect"/>
 

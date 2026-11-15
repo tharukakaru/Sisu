@@ -14,7 +14,8 @@ test('hosted links remain validated HTTPS destinations',()=>{
   assert.equal(campusAdminUrl({site:'sisuacademylk.com',url},hosted),null)
 })
 test('section links restore known pages and reject malformed fragments',()=>{
- assert.equal(new Set(ownerSections.map(s=>s.name)).size,11)
+ assert.equal(new Set(ownerSections.map(s=>s.name)).size,12)
+ assert.equal(ownerSection('#Profile'),'Profile')
  assert.equal(ownerSection('#Admin%20access'),'Admin access')
  assert.equal(ownerSection('#%XX'),'Overview')
  assert.equal(ownerSection('#unknown'),'Overview')

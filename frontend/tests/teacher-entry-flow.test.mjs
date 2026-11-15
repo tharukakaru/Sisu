@@ -110,6 +110,22 @@ test('teacher sign-in routes preserve access gates, institute actions and signup
       assert.ok(marker(root,'App'));assert.equal(button(root,'Join your registered institute'),undefined)
       app.unmount();app=null
     }
+    for(const kind of ['Teacher','Institute']){
+      values.clear();session={authenticated:true,user:'provider@example.invalid',role:'Campus',member:null,onboarding_kind:kind,shared_campus:true,teaching_path:'individual',provider_onboarding_required:true}
+      const root={children:[]};app=renderer.createApp(Portal);const vm=app.mount(root);await flush()
+      assert.ok(marker(root,'ProviderFirstLogin'))
+      session={...session,provider_onboarding_required:false};await vm.$.setupState.connect();await flush()
+      assert.ok(marker(root,'ProviderOnboardingStatus'),'A saved provider profile must not loop back to profile completion')
+      assert.equal(marker(root,'MobileVerification'),undefined)
+      assert.equal(marker(root,'ProfileEditor'),undefined)
+      assert.equal(marker(root,'App'),undefined,'Saving a profile must not grant workspace access')
+      if(kind==='Teacher'){
+        session={...session,teaching_path:'institute'};await vm.$.setupState.connect();await flush()
+        assert.equal(marker(root,'ProviderOnboardingStatus'),undefined,'Institute teachers retain their membership request flow')
+        assert.ok(marker(root,'MobileVerification'))
+      }
+      app.unmount();app=null
+    }
     values.clear();session={authenticated:true,user:'institute@example.invalid',role:'Campus',member:null,onboarding_kind:'Institute',shared_campus:true}
     const onboardingRoot={children:[]};app=renderer.createApp(Portal);app.mount(onboardingRoot);await flush()
     assert.ok(marker(onboardingRoot,'MobileVerification'))
