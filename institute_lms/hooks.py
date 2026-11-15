@@ -99,8 +99,8 @@ scheduler_events['daily'].append('institute_lms.sandbox_notices.expiry')
 scheduler_events['cron'].setdefault('*/1 * * * *', []).append('institute_lms.owner_invitation_delivery.dispatch')
 
 # Presentation only: keep Frappe login handlers and verification intact.
-web_include_css = ["/assets/institute_lms/login-presentation.css?v=sisu-auth-20261115-mfa2"]
-web_include_js = ["/assets/institute_lms/login-presentation.js?v=sisu-auth-20261115-mfa2"]
+web_include_css = ["/assets/institute_lms/login-presentation.css?v=sisu-auth-20261115-signup"]
+web_include_js = ["/assets/institute_lms/login-presentation.js?v=sisu-auth-20261115-signup"]
 
 # Shared SISU browser-tab icon for login, website and error pages.
 website_context = {"favicon": "/assets/institute_lms/sisu-icon.png?v=sisu-20261114"}

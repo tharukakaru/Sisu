@@ -1,6 +1,7 @@
 <script setup>
 import {ref,onMounted} from 'vue'
 import InstituteJoinPicker from './InstituteJoinPicker.vue'
+import TeacherInstitutes from './TeacherInstitutes.vue'
 import MobileVerification from './MobileVerification.vue'
 import {request} from './client'
 import SubscriptionBilling from './SubscriptionBilling.vue'
@@ -20,14 +21,15 @@ async function verifiedPhone(value){
   }catch{/* The request picker displays actionable errors when opened. */}
 }
 function back(){if(billingOpen.value){billingOpen.value=false}else if(joinMode.value){joinMode.value=''}else if(individual.value){individual.value=false}else if(window.history.length>1){window.history.back()}}
-const props=defineProps({role:String,selectionOnly:Boolean,initialIndividual:Boolean,checking:Boolean,error:String});const emit=defineEmits(['changed','continue']);const panel=ref(null)
+const props=defineProps({role:String,unifiedTeacher:Boolean,selectionOnly:Boolean,initialIndividual:Boolean,checking:Boolean,error:String});const emit=defineEmits(['changed','continue']);const panel=ref(null)
 const billingOpen=ref(false)
 const individual=ref(props.initialIndividual)
 function continueIndividual(){if(props.selectionOnly)emit('continue');else individual.value=true}
 onMounted(async()=>{panel.value?.focus();if(props.selectionOnly){try{const data=await request('profiles','me',{},'GET');await verifiedPhone(data.phone_verified)}catch{}}})
 </script>
 <template>
-<PaymentRequired v-if="!selectionOnly&&!billingOpen&&(role!=='Teacher'||individual)" :checking="checking" :error="error" @back="back" @billing="billingOpen=true" @check="emit('changed')"/>
+<main v-if="unifiedTeacher&&role==='Teacher'" class="unified-recovery"><h1>Your teacher subscription</h1><p>Your trial has ended. Choose a personal plan or open an approved institute workspace with active coverage.</p><TeacherInstitutes @navigate="billingOpen=true"/><SubscriptionBilling standalone @changed="emit('changed')"/></main>
+<PaymentRequired v-else-if="!selectionOnly&&!billingOpen&&(role!=='Teacher'||individual)" :checking="checking" :error="error" @back="back" @billing="billingOpen=true" @check="emit('changed')"/>
 <TeacherSignupLayout v-else-if="role==='Teacher'" active class="teacher-workspace-layout">
   <main class="teacher-workspace-content">
     <section ref="panel" class="teacher-workspace-panel" tabindex="-1" aria-labelledby="teacher-workspace-title">
@@ -76,3 +78,5 @@ onMounted(async()=>{panel.value?.focus();if(props.selectionOnly){try{const data=
 @media(max-width:999px){.teacher-workspace-content{padding:0;min-height:calc(100dvh - 210px)}}
 @media(max-width:480px){.teacher-workspace-panel h1{font-size:30px;letter-spacing:-1px}.workspace-options button{font-size:13px}}
 </style>
+
+<style scoped>.unified-recovery{max-width:1100px;margin:40px auto;padding:24px}.unified-recovery>p{line-height:1.7;margin-bottom:24px}</style>

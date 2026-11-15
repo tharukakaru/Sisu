@@ -110,7 +110,13 @@ def state(a):
 
 def policy(inst=None, member=None):
     a = account() if inst is None and member is None else account(inst, member)
-    if a.role=='Teacher' and frappe.conf.get('il_institute_teacher_coverage')==1 and not state(a)['available']:
+    from .signup_environment import unified_teacher_enabled
+    workspace_context = None
+    if a.role == 'Teacher' and unified_teacher_enabled(frappe.conf):
+        from .teacher_workspace import billing_context
+        current_inst, current_member = actor() if inst is None else (inst, member)
+        workspace_context = billing_context(current_inst, current_member)
+    if a.role=='Teacher' and frappe.conf.get('il_institute_teacher_coverage')==1 and (unified_teacher_enabled(frappe.conf) or not state(a)['available']):
         from .institute_coverage import for_account
         coverage=for_account(a)
         if coverage:a=coverage['account']
@@ -122,8 +128,24 @@ def policy(inst=None, member=None):
     f.update({'integrations.' + k: f['integrations'] for k in ('whatsapp','youtube', 'calendar')})
     f.update({'integrations.' + k: True for k in ('email','sms','push')})
     s = state(a)
-    return dict(**s, plan=a.plan, features=f, limits={}, revision=1,
-                ends_at=a.paid_until or a.trial_until, locked_reason='' if s['available'] else 'Your SISU subscription needs payment. Open Subscription to continue.')
+    if workspace_context:
+        s = {k: workspace_context[k] for k in ('state', 'available')}
+    return dict(**s, plan=workspace_context["plan"] if workspace_context else a.plan, features=f, limits={}, revision=1,
+                ends_at=a.paid_until or a.trial_until, locked_reason='' if s['available'] else (workspace_context['message'] if workspace_context else 'Your SISU subscription needs payment. Open Subscription to continue.'))
+
+@frappe.whitelist(methods=['GET'])
+def teacher_trial():
+    """Own-account display only: no trial creation, reset or access grant."""
+    inst, member = actor()
+    if member.role != 'Teacher':
+        return {'active': False}
+    a = account(inst, member)
+    if state(a)['state'] != 'Trial':
+        return {'active': False}
+    # Subtract on the server: browser timezone and clock cannot change expiry.
+    remaining = max(0, int((get_datetime(a.trial_until) - now_datetime()).total_seconds() * 1000))
+    return {'active': remaining > 0, 'remaining_ms': remaining}
+
 
 def public_account(a):
     fields = ('name','role','display_name','plan','next_plan',
@@ -136,6 +158,13 @@ def public_account(a):
         result['workspace_available']=bool(result['available'] or coverage)
         result['institute_covered']=bool(coverage)
         result['institute_only']=bool(coverage and not result['available'])
+        from .signup_environment import unified_teacher_enabled
+        if unified_teacher_enabled(frappe.conf):
+            from .teacher_workspace import billing_context
+            inst, member = actor()
+            context = billing_context(inst, member)
+            result['workspace_available'] = context['available']
+            result['institute_only'] = context['kind'] == 'Institute'
     result['monthly_minor'] = price(a, a.plan)
     result['next_monthly_minor'] = price(a, a.next_plan) if a.next_plan else None
     result['billing_ready'] = bool(provider_lkr(a) or (a.billing_country and a.country_status in ('Verified','Change requested')))
@@ -368,7 +397,12 @@ def guard_request():
     path=frappe.local.request.path
     method=frappe.form_dict.get('cmd') or (path.split('/method/',1)[1].rstrip('/') if '/method/' in path else '')
     module=method.split('.')[1] if method.startswith('institute_lms.') else ''
+    from .signup_environment import unified_teacher_enabled
+    if unified_teacher_enabled(frappe.conf):
+        from .teacher_workspace import enforce_request
+        if enforce_request(method):return
     if method=='institute_lms.plan_catalog.public_catalog':return  # Public product catalogue, no account data.
+    if method=='institute_lms.teacher_workspace.open_workspace':return  # Verified self-only provisioning; no paid grant.
     if method in ('institute_lms.learning_preferences.get_preferences','institute_lms.learning_preferences.save_preferences'):return  # User-owned goals, never institute data.
     # These endpoints must work before any institute is selected. Each checks
     # the shared-campus flag, active user and its own membership/profile rules.

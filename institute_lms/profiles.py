@@ -109,7 +109,10 @@ def review(profile,decision,reason,workspace=None):
         p.code=make_autoname(prefix+'.#######')
     if decision=='Verified':
         from .onboarding import activate
-        activate(p,workspace)
+        from .teacher_workspace import enabled as unified_teacher_enabled
+        if not (unified_teacher_enabled() and p.kind=='Teacher' and p.workspace and
+                frappe.db.exists('IL Member',{'institute':p.workspace,'user':p.user,'role':'Teacher','active':1})):
+            activate(p,workspace)
         if p.kind=='Institute':p.workspace=workspace
     p.status=decision;p.review_reason=str(reason)[:1000];p.reviewed_by=frappe.session.user;write(p)
     return {'code':p.code,'status':p.status}
@@ -282,7 +285,7 @@ def institute_join_options():
     from .teacher_identity import eligible
     if not (frappe.db.exists('IL Member',{'user':frappe.session.user,'role':'Teacher','active':1}) or eligible(frappe.session.user)):
         frappe.throw('Teacher account required',frappe.PermissionError)
-    return {'institutes':frappe.get_all('IL Public Profile',filters={'kind':'Institute','status':'Verified'},fields=['name','display_name','username'],limit_page_length=100),
+    return {'institutes':frappe.get_all('IL Public Profile',filters={'kind':'Institute','status':'Verified'},fields=['name','display_name','username','workspace','profile_image','tagline','country','curriculum','languages'],order_by='display_name asc',limit_page_length=100),
         'requests':frappe.get_all('IL Profile Relationship',filters={'user':frappe.session.user,'kind':'Teacher membership'},fields=['name','profile','status','request_purpose'],limit_page_length=100)}
 
 @frappe.whitelist(methods=['POST'])
@@ -304,6 +307,14 @@ def request_institutes(profiles,purpose):
         doc=frappe.get_doc('IL Profile Relationship',existing) if existing else frappe.get_doc({'doctype':'IL Profile Relationship','relationship_key':key,'profile':name,'user':frappe.session.user,'kind':'Teacher membership'})
         if existing and doc.status in ('Pending','Active'):continue
         doc.status='Pending';doc.request_purpose=purpose;write(doc)
+        from .teacher_workspace import enabled as unified_teacher_enabled
+        if unified_teacher_enabled():
+            p=frappe.get_doc('IL Public Profile',name)
+            teacher=mine()
+            from .notification_service import emit
+            for admin in frappe.get_all('IL Member',filters={'institute':p.workspace,'role':'Admin','active':1},pluck='name'):
+                emit(p.workspace,admin,'teacher.membership.requested','teacher-request:'+doc.name+':'+str(doc.modified),
+                     teacher.display_name+' (@'+teacher.username+') requested to join '+p.display_name+'. Open Teacher requests to review.',channels=['IN_APP'])
     return {'submitted':True,'message':'Request submitted. Wait for confirmation from your institute. No access has been granted yet.'}
 
 @frappe.whitelist(methods=['GET'])

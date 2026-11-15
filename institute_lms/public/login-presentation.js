@@ -45,6 +45,38 @@
     }
     const heading=login.querySelector('.page-card-head h4, .page-card-head h2');if(heading)heading.textContent=reset ? 'Set your password' : 'Welcome back.';
     const intro=login.querySelector('.page-card-head p');if(intro)intro.textContent=reset ? 'Choose a strong password for your SISU account.' : 'Sign in to your SISU learning or teaching workspace.';
+    const loginParams = new URLSearchParams(location.search);
+    if (!entry.control_plane && !reset && loginParams.get('role') === 'teacher') {
+      if (heading) heading.textContent = 'Teacher sign in';
+      if (intro) intro.textContent = 'Sign in to open your teaching workspace.';
+    }
+    if (!entry.control_plane && !reset && loginParams.get('signup_success') === 'teacher') {
+      // A one-time presentation notice; it never grants authentication or access.
+      loginParams.delete('signup_success');
+      history.replaceState(history.state, '', location.pathname + '?' + loginParams.toString() + location.hash);
+      const dialog = document.createElement('dialog');
+      dialog.className = 'sisu-signup-success';
+      dialog.setAttribute('aria-labelledby', 'sisu-signup-success-title');
+      dialog.setAttribute('aria-describedby', 'sisu-signup-success-description');
+      const title = document.createElement('h2');
+      title.id = 'sisu-signup-success-title';
+      title.textContent = 'Signup successful';
+      const description = document.createElement('p');
+      description.id = 'sisu-signup-success-description';
+      description.textContent = 'Your teacher account has been created. Please log in to continue.';
+      const ok = document.createElement('button');
+      ok.type = 'button';
+      ok.textContent = 'OK';
+      ok.addEventListener('click', () => dialog.close());
+      dialog.addEventListener('close', () => {
+        dialog.remove();
+        login.querySelector('#login_email')?.focus();
+      });
+      dialog.append(title, description, ok);
+      document.body.append(dialog);
+      dialog.showModal();
+      ok.focus();
+    }
     document.querySelectorAll('.for-reset-password .sign-up-message a').forEach(link => { link.href = '/login?redirect-to=/campus'; });
     const emailHeading = document.querySelector('.for-login-with-email-link .page-card-head h4');
     if (emailHeading) emailHeading.textContent = 'Sign in with an email link';

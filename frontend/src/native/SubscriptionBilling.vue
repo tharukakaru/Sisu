@@ -88,7 +88,7 @@ onMounted(async()=>{await run(load)})
      <div class="checkout-total"><dt>Due today</dt><dd>{{usd(checkoutBill.amount_minor,checkoutBill.currency)}}</dd></div>
     </dl>
     <p class="checkout-renewal"><Icon name="CircleCheck" :size="16"/>One payment. No automatic renewals.</p>
-    <CyberSourcePayment :key="checkoutInvoice" kind="subscription" :invoice="checkoutInvoice" :visible="checkoutOpen" review @changed="load" @screen-change="checkoutFormOpen=$event"/>
+    <CyberSourcePayment :key="checkoutInvoice" kind="subscription" :invoice="checkoutInvoice" :visible="checkoutOpen" review @changed="run(async()=>{await load();emit('changed')})" @screen-change="checkoutFormOpen=$event"/>
    </div>
    <footer class="checkout-footer"><Icon name="ShieldCheck" :size="19"/><p>Your plan activates after payment is verified.<br><span>Close this popup to pause. Keep this browser tab open to resume.</span></p></footer>
   </section>

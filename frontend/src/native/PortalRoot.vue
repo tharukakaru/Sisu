@@ -83,9 +83,9 @@ const roleCopy={
   Institute:{title:'We’re an institute',description:'Manage your team, programmes and classrooms.'},
 }
 
-function openSignup(){if(selected.value==='Institute'){openProviderSignup('Institute');return}signupPath.value=true}
+function openSignup(){if(selected.value==='Teacher'&&policy.value.unified_teacher_signup){openProviderSignup('Individual Teacher','individual');return}if(selected.value==='Institute'){openProviderSignup('Institute');return}signupPath.value=true}
 
-function openProviderSignup(kind,path){if(kind==='Individual Teacher'){teacherPath.value=path||teacherPath.value;rememberTeacherPath(sessionStorage,teacherPath.value)}else{rememberTeacherPath(sessionStorage,'')}if(kind==='Individual Teacher'&&teacherPath.value==='institute')kind='Institute Teacher';providerSignupKind.value=kind;sessionStorage.setItem('sisu_signup_role',kind);signup.value=true}
+function openProviderSignup(kind,path){if(policy.value.unified_teacher_signup&&['Individual Teacher','Institute Teacher'].includes(kind)){kind='Individual Teacher';path='individual'}if(kind==='Individual Teacher'){teacherPath.value=path||teacherPath.value;rememberTeacherPath(sessionStorage,teacherPath.value)}else{rememberTeacherPath(sessionStorage,'')}if(kind==='Individual Teacher'&&teacherPath.value==='institute')kind='Institute Teacher';providerSignupKind.value=kind;sessionStorage.setItem('sisu_signup_role',kind);signup.value=true}
 
 function chooseRole(role){roleChosen.value=selected.value===role?!roleChosen.value:true;selected.value=role;signupPath.value=false;providerSignupKind.value=''}
 
@@ -93,7 +93,7 @@ function goBack(){if(signupPath.value){signupPath.value=false}else if(roleChosen
 
 async function google(signup=false){if(signup===true)sessionStorage.setItem('sisu_signup_role','Student');rememberEntry();try{const r=await request('portal_policy','google_start',{signup:signup===true?1:0});const u=new URL(r.url);if(u.protocol!=='https:'||u.hostname!=='accounts.google.com')throw Error('Google sign-in is unavailable');location.assign(u.href)}catch(e){error.value=e.message}}
 
-async function connect(){busy.value=true;error.value='';googleSignupError.value=null;try{session.value=await request('portal_session','current',{},'GET');if(!newGoogleSignup)entryPath.value=resolveTeacherPath(sessionStorage,session.value);if(session.value.csrf_token)window.csrf_token=session.value.csrf_token;const signupEntry=await googleSignupEntry(session.value,newGoogleSignup,request);if(signupEntry){policy.value=signupEntry.policy;existingGoogleAccount.value=signupEntry.accountExists;if(existingGoogleAccount.value)return}if(session.value.member)subscription.value=(await request('account_billing','status')).account}catch(e){error.value=e.message;if(newGoogleSignup)googleSignupError.value=e}finally{busy.value=false}}
+async function connect(){busy.value=true;error.value='';googleSignupError.value=null;try{[session.value,policy.value]=await Promise.all([request('portal_session','current',{},'GET'),request('portal_policy','public',{},'GET')]);if(session.value.csrf_token)window.csrf_token=session.value.csrf_token;if(policy.value.unified_teacher_signup&&session.value.onboarding_kind==='Teacher'&&!session.value.member&&session.value.provider_onboarding_required===false&&!newGoogleSignup){await request('teacher_workspace','open_workspace');session.value=await request('portal_session','current',{},'GET')}if(!newGoogleSignup)entryPath.value=resolveTeacherPath(sessionStorage,session.value);if(session.value.csrf_token)window.csrf_token=session.value.csrf_token;const signupEntry=await googleSignupEntry(session.value,newGoogleSignup,request);if(signupEntry){policy.value=signupEntry.policy;existingGoogleAccount.value=signupEntry.accountExists;if(existingGoogleAccount.value)return}if(session.value.member)subscription.value=(await request('account_billing','status')).account}catch(e){error.value=e.message;if(newGoogleSignup)googleSignupError.value=e}finally{busy.value=false}}
 
 onMounted(()=>{if(!firebaseTestPage&&!passwordConfirmation){connect();request('portal_policy','public',{},'GET').then(p=>policy.value=p).catch(()=>{})}})
 
@@ -101,7 +101,7 @@ onMounted(()=>{if(!firebaseTestPage&&!passwordConfirmation){connect();request('p
 
 <template>
 
-<PageLoading v-if="busy&&(!session||newGoogleSignup||(session.member&&!subscription))&&!passwordConfirmation&&!firebaseTestPage"/><PasswordConfirmation v-else-if="passwordConfirmation"/><section v-else-if="firebaseTestPage" class="panel" style="max-width:760px;margin:40px auto;padding:24px"><h1>SISU browser notification test</h1><p>This test uses your configured sandbox account.</p><a href="/sandbox_firebase_login">Sign in as sandbox Administrator</a><FirebasePush/></section>
+<PageLoading v-if="busy&&(!session||newGoogleSignup||(session.member&&!subscription)||(policy.unified_teacher_signup&&session.onboarding_kind==='Teacher'&&!session.member))&&!passwordConfirmation&&!firebaseTestPage"/><PasswordConfirmation v-else-if="passwordConfirmation"/><section v-else-if="firebaseTestPage" class="panel" style="max-width:760px;margin:40px auto;padding:24px"><h1>SISU browser notification test</h1><p>This test uses your configured sandbox account.</p><a href="/sandbox_firebase_login">Sign in as sandbox Administrator</a><FirebasePush/></section>
 
   <PageLoading v-else-if="googleSignupError" :error="googleSignupError"/>
   <ExistingAccountDialog v-else-if="existingGoogleAccount" authenticated/>
@@ -110,15 +110,17 @@ onMounted(()=>{if(!firebaseTestPage&&!passwordConfirmation){connect();request('p
 
   <Subscription v-else-if="session?.control_plane&&session.authenticated" control-plane/>
 
-  <ProviderFirstLogin v-else-if="session?.provider_onboarding_required" :session="session"/>
-  <ProviderAccessGate v-else-if="teacherView==='institute'" key="institute-entry" role="Teacher" selection-only @continue="continueIndividually" @changed="connect">
+  <ProviderFirstLogin :unified-teacher="!!policy.unified_teacher_signup" @completed="connect" v-else-if="session?.provider_onboarding_required" :session="session"/>
+  <ProviderAccessGate v-else-if="!policy.unified_teacher_signup&&teacherView==='institute'" key="institute-entry" role="Teacher" selection-only @continue="continueIndividually" @changed="connect">
     <details v-if="session.shared_campus" class="teacher-approved-workspaces"><summary>Open an approved teaching workspace</summary><CampusSwitcher provider @opening="continueIndividually"/></details>
     <button v-else-if="session.member" type="button" class="entry-secondary" @click="continueIndividually">Open my current workspace</button>
   </ProviderAccessGate>
 
+  <main v-else-if="policy.unified_teacher_signup&&session?.onboarding_kind==='Teacher'&&!session.member&&session.provider_onboarding_required===false" class="entry-onboarding" role="alert"><h1>We couldn’t open your teaching space</h1><p>{{error||'Please try again. Your account details are saved.'}}</p><button class="button primary" :disabled="busy" @click="connect">Try again</button><a href="/api/method/logout">Sign out</a></main>
   <ProviderOnboardingStatus v-else-if="session?.shared_campus&&!session.member&&session.provider_onboarding_required===false&&['Teacher','Institute'].includes(session.onboarding_kind)" :session="session" @changed="connect"/>
 
-  <ProviderAccessGate v-else-if="session?.member&&session.role!=='Student'&&(!subscription||(subscription.workspace_available??subscription.available)===false)" key="workspace-access" :role="session.role" :initial-individual="session.role==='Teacher'" :checking="busy" :error="error" @changed="connect"/><AccountSubscription v-else-if="session?.member&&session.role!=='Student'&&(!subscription||(subscription.workspace_available??subscription.available)===false)" standalone @changed="connect"/>
+  <Campus v-else-if="policy.unified_teacher_signup&&session?.member&&session.role==='Teacher'" :shared-campus="session.shared_campus"/>
+  <ProviderAccessGate v-else-if="session?.member&&session.role!=='Student'&&(!subscription||(subscription.workspace_available??subscription.available)===false)" key="workspace-access" :unified-teacher="!!policy.unified_teacher_signup" :role="session.role" :initial-individual="session.role==='Teacher'" :checking="busy" :error="error" @changed="connect"/><AccountSubscription v-else-if="session?.member&&session.role!=='Student'&&(!subscription||(subscription.workspace_available??subscription.available)===false)" standalone @changed="connect"/>
 
   <Owner v-else-if="session?.role==='Super Admin'" :session="session"/>
 

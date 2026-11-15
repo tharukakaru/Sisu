@@ -116,6 +116,18 @@ class PublicAccountCompletion(TestCase):
             self.complete('token','a-password-123','a-password-123')
         self.assertEqual(self.docs, [])
 
+    def test_unified_teacher_keeps_profile_but_still_requires_phone_proof(self):
+        self.data['kind'] = 'Individual Teacher'
+        self.state['phone_verified'] = False
+        with patch.dict('sys.modules', {'institute_lms.teacher_workspace': NS(enabled=lambda: True)}):
+            self.complete('token', 'a-password-123', 'a-password-123')
+        registration = next(d for d in self.docs if d['doctype'] == 'IL Registration Request')
+        self.assertTrue(json.loads(registration['details'])['onboarding_profile_completed'])
+        self.assertIn('required on first login', registration['review_reason'])
+        profile = next(d for d in self.docs if d['doctype'] == 'IL Public Profile')
+        self.assertEqual(profile['status'], 'Pending')
+        self.assertFalse(any(d['doctype'] in ('IL Verified Phone', 'IL Member', 'IL Subscription') for d in self.docs))
+
     def test_registered_google_account_cannot_have_password_overwritten(self):
         self.state['google_user']=self.data['email'];self.f.session.user=self.data['email']
         self.challenges.google_identity.return_value=True;self.registered.return_value=True

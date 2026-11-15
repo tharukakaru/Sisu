@@ -143,8 +143,10 @@ def complete(token,password,confirmation):
             write(profile)
             # No membership, global role, subscription, paid grant or institute
             # ownership is created by this identity-verification transaction.
+            from .teacher_workspace import enabled as unified_teacher_enabled
+            teacher_profile_complete = kind == 'Teacher' and unified_teacher_enabled()
             frappe.get_doc({'doctype':'IL Registration Request','email':email,'account_type':data['kind'],
-                'status':'Approved','email_verified':1,'details':json.dumps({**data,'flow':'public-account-v1','onboarding_version':2}),
+                'status':'Approved','email_verified':1,'details':json.dumps({**data,'flow':'public-account-v1','onboarding_version':2,**({'onboarding_profile_completed':True} if teacher_profile_complete else {})}),
                 'review_reason':'Email verified; phone verification '+('complete' if state.get('phone_verified') is True else 'required on first login')+'; no workspace permissions or provider endorsement granted.'}).insert(ignore_permissions=True)
             from .account_confirmations import queue
             queue(email,'account-verified','Account created','Your SISU account has been created. Sign in to complete any remaining profile and mobile verification steps.')

@@ -5,9 +5,11 @@ import MobileVerification from './MobileVerification.vue'
 import ProviderProfileSetup from './ProviderProfileSetup.vue'
 import InstituteJoinPicker from './InstituteJoinPicker.vue'
 import {csrf,decode} from './client'
-const props=defineProps({session:Object})
+const props=defineProps({session:Object,unifiedTeacher:Boolean})
+const emit=defineEmits(['completed'])
+function verifiedPhone(value){verified.value=value;if(value&&props.unifiedTeacher&&props.session.onboarding_kind==='Teacher'&&props.session.provider_profile_required===false){emit('completed')}}
 const confirmation=ref(null)
-async function completed(){saved.value=true;await nextTick();confirmation.value?.showModal()}
+async function completed(){saved.value=true;if(props.unifiedTeacher&&props.session.onboarding_kind==='Teacher'){emit('completed');return}await nextTick();confirmation.value?.showModal()}
 const verified=ref(false),saved=ref(false),busy=ref(false),error=ref('')
 async function login(){
  if(!verified.value||!saved.value||busy.value)return
@@ -17,7 +19,7 @@ async function login(){
 }
 </script>
 <template><main class="first-login"><BrandLogo/><h1>Let’s make this space yours.</h1><p>Complete these steps once to set up your account.</p>
-<MobileVerification v-if="!verified" onboarding hide-heading @verified="verified=$event"/>
+<MobileVerification v-if="!verified" onboarding hide-heading @verified="verifiedPhone"/>
 <ProviderProfileSetup v-if="verified&&!saved" :member="{user:session.user,full_name:session.user,role:session.onboarding_kind==='Institute'?'Admin':'Teacher'}" @completed="completed"/>
 <dialog ref="confirmation" class="saved-dialog" aria-labelledby="saved-title" @cancel.prevent><h2 id="saved-title">Profile details saved successfully</h2><p>Your information is saved securely.</p><button v-if="session.teaching_path==='institute'" class="continue" @click="confirmation.close()">Continue to institute selection</button><button v-else class="continue" :disabled="busy" @click="login">Back to sign in</button><p v-if="error" role="alert">{{error}}</p></dialog>
 <section v-if="verified&&saved" class="success" role="status" aria-live="polite"><h2>Profile details saved successfully</h2><p>Your profile and mobile number are saved.{{session.teaching_path==='institute'?' Choose your institutes below.':' You can return to login now.'}}</p></section>
