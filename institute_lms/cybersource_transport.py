@@ -52,7 +52,7 @@ def request(config, method, path, data=None, token=False):
         with requests.Session() as session:
             session.trust_env = False
             response = session.request(method, 'https://' + host + path, data=body or None,
-                headers=auth_headers, timeout=(5, 25), allow_redirects=False)
+                headers=auth_headers, timeout=(15, 25), allow_redirects=False)
             if path == '/uc/v1/sessions' and response.status_code == 400 and len(response.content) <= 512000:
                 error = response.json()
                 if isinstance(error, dict) and error.get('code') == 'UNIFIEDPAYMENTS_VALIDATION_FIELDS':
@@ -93,7 +93,7 @@ def public_key(kid, host=None, refresh=False):
     with requests.Session() as session:
         session.trust_env = False
         response = session.get('https://' + host + '/flex/v2/public-keys/' + kid,
-                               timeout=(5, 15), allow_redirects=False)
+                               timeout=(15, 15), allow_redirects=False)
         if response.status_code != 200 or len(response.content) > 16000:
             raise ValueError('Public key unavailable')
         key = response.json()

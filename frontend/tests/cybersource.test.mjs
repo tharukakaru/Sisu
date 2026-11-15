@@ -10,6 +10,12 @@ test('only server success is presented as verified',()=>{
  assert.doesNotMatch(paymentMessage({status:'failed',session_rejected:true}),/declined/)
 })
 
+test('verified acquirer rejection shows the server explanation instead of pending',()=>{
+ const message='Payment was rejected by the acquiring bank or processor (code 491). Your paid plan was not activated.'
+ assert.equal(paymentMessage({status:'failed',message}),message)
+ assert.doesNotMatch(paymentMessage({status:'failed'}),/pending|invoice remains unpaid/)
+})
+
 test('lost checkout copy distinguishes unfinished checkout from payment processing',()=>{
  const waiting=paymentMessage({status:'pending',retry_after:Date.now()/1000+600})
  assert.match(waiting,/original window/)

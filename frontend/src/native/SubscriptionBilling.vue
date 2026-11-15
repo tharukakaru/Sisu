@@ -28,7 +28,10 @@ function checkoutKeys(event){
  else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus()}
 }
 const drafts=computed(()=>data.value?.invoices.filter(b=>b.status==='Draft')||[])
-const history=computed(()=>data.value?.invoices.filter(b=>b.status!=='Draft')||[])
+const history=computed(()=>[
+ ...(data.value?.invoices.filter(b=>!['Draft','Void'].includes(b.status))||[]),
+ ...(data.value?.failed_payments||[]).map(b=>({...b,name:b.invoice,attempt:b.name,status:'Failed'}))
+].sort((a,b)=>String(b.creation).localeCompare(String(a.creation))))
 function openCheckout(name){checkoutInvoice.value=name;checkoutOpen.value=true}
 const account=computed(()=>data.value?.account)
 const usd=(n,currency=account.value?.currency||'USD')=>new Intl.NumberFormat('en-US',{style:'currency',currency,minimumFractionDigits:2}).format(n/100)
@@ -41,8 +44,16 @@ async function save(){await run(async()=>{await request('account_billing','prefe
 async function choose(plan){await run(async()=>{await request('account_billing','preferences',{...form.value,plan});await load();if(account.value.state!=='Active'){const bill=await request('account_billing','invoice',{start_paid:1});openCheckout(bill.invoice);await load()}showPlans.value=false;notice.value=account.value.next_plan?'Your new plan starts at the next renewal.':'Your plan is selected. Continue from your draft checkout below. Payment is not completed; access changes only after verified payment.'})}
 async function invoice(){await run(async()=>{const r=await request('account_billing','invoice',{start_paid:1});openCheckout(r.invoice);await load();notice.value=r.message})}
 async function cancel(){await run(async()=>{await request('account_billing','cancel',{cancel:!account.value.cancel_at_end});await load();notice.value=account.value.cancel_at_end?'Renewal cancelled. Your current access keeps its end date.':'Renewal resumed.'})}
-async function download(name){await run(async()=>{const result=await request('account_billing','document',{invoice:name});const url=URL.createObjectURL(new Blob([result.html],{type:'text/html'}));const a=document.createElement('a');a.href=url;a.download=result.filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)})}
-onMounted(async()=>{await run(load)})
+async function download(name){await run(async()=>{const result=await request('account_billing','document',{invoice:name});const bytes=Uint8Array.from(atob(result.pdf),c=>c.charCodeAt(0));const url=URL.createObjectURL(new Blob([bytes],{type:'application/pdf'}));const a=document.createElement('a');a.href=url;a.download=result.filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)})}
+onMounted(async()=>{await run(async()=>{
+ await load()
+ const target=new URLSearchParams(location.search).get('checkout_invoice')
+ if(!target)return
+ const bill=data.value.invoices.find(b=>b.name===target)
+ if(!bill){error.value='This checkout belongs to a different account or is no longer available. Sign in with the teacher account that created it.';return}
+ if(['Draft','Unpaid'].includes(bill.status))openCheckout(bill.name)
+ else notice.value=bill.status==='Paid'?'This invoice is already paid. Your payment will not be requested again.':'This checkout is no longer payable. Select your current plan checkout below.'
+})})
 </script>
 <template>
  <main class="billing-page" :class="{'billing-standalone':standalone}" :aria-busy="busy">
@@ -69,8 +80,8 @@ onMounted(async()=>{await run(load)})
    <section v-if="drafts.length" class="billing-section" aria-labelledby="draft-checkouts"><h2 id="draft-checkouts">Your plan checkout</h2><article v-for="bill in drafts" :key="bill.name" class="billing-plan-row"><div><h3>{{bill.plan}} · {{usd(bill.amount_minor,bill.currency)}}</h3><p>Payment not completed · Draft</p><p class="billing-caption">This is an unfinished checkout, not an unpaid bill. Your plan activates after payment is verified.</p></div><button class="billing-button" :disabled="busy" @click="openCheckout(bill.name)">Continue checkout</button></article></section>
    <section class="billing-section" aria-labelledby="invoice-history">
     <div class="billing-section-heading"><h2 id="invoice-history">Invoices & receipts</h2><button v-if="canInvoice" class="billing-button" :disabled="busy" @click="invoice">{{account.state==='Trial'?'Start paid plan':'Create invoice'}}</button></div>
-    <div v-if="!history.length" class="billing-empty"><Icon name="FileText" :size="22"/><div><p class="billing-primary">No invoices yet</p><p>Your invoices will appear here after your free trial.</p></div></div>
-    <div v-else class="billing-table"><table><thead><tr><th>Date</th><th>Invoice</th><th>Amount</th><th>Status</th><th><span class="sr-only">Download</span></th></tr></thead><tbody><tr v-for="bill in history" :key="bill.name"><td>{{date(bill.creation||bill.period_start)}}</td><td>{{bill.name}}</td><td>{{usd(bill.amount_minor,bill.currency)}}</td><td>{{bill.status}}</td><td><button class="billing-link" :disabled="busy" @click="download(bill.name)"><Icon name="Download" :size="16"/>{{bill.status==='Paid'?'Download receipt':'Download invoice'}}</button><button v-if="bill.status==='Unpaid'" class="billing-button" @click="openCheckout(bill.name)">Open checkout</button></td></tr></tbody></table><p class="billing-caption">For a PDF, open the downloaded document and choose Print → Save as PDF.</p></div>
+    <div v-if="!history.length" class="billing-empty"><Icon name="FileText" :size="22"/><div><p class="billing-primary">No invoices yet</p><p>Completed payments and rejected card payments will appear here.</p></div></div>
+    <div v-else class="billing-table"><table><thead><tr><th>Date</th><th>Invoice</th><th>Amount</th><th>Status</th><th><span class="sr-only">Download</span></th></tr></thead><tbody><tr v-for="bill in history" :key="bill.attempt||bill.name"><td>{{date(bill.creation||bill.period_start)}}</td><td>{{bill.name}}</td><td>{{usd(bill.amount_minor,bill.currency)}}</td><td>{{bill.status}}</td><td><span v-if="bill.status==='Failed'" class="billing-caption">Payment rejected</span><button v-else class="billing-link" :disabled="busy" @click="download(bill.name)"><Icon name="Download" :size="16"/>{{bill.status==='Paid'?'Download receipt':'Download invoice'}}</button><button v-if="bill.status==='Unpaid'" class="billing-button" @click="openCheckout(bill.name)">Open checkout</button></td></tr></tbody></table><p v-if="history.some(bill=>bill.status==='Void')" class="billing-caption">Void means a checkout was cancelled or replaced. It is not a payment or an outstanding bill.</p><p class="billing-caption">Invoices and receipts download as PDF files. Only submitted, rejected card payments appear as Failed.</p></div>
    </section>
    <footer class="billing-footer"><span>Prices in {{account.currency}}. Class tuition is separate.</span><button class="billing-link" :disabled="busy" @click="run(async()=>{await load();emit('changed')})">Refresh billing</button></footer>
   </template>

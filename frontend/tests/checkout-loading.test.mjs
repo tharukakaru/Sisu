@@ -8,20 +8,22 @@ const source=fs.readFileSync(new URL('../src/native/CyberSourcePayment.vue',impo
   .match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'')
 function harness({request,loadCheckoutLibrary,now=Date.now}) {
  const props={invoice:'draft-test',kind:'subscription',visible:true,review:true}
- let formHeight=0,selectionHeight=0,sync,dispose,reloads=0
+ let formHeight=0,selectionHeight=0,sync,dispose,reloads=0,timerId=0
+ const timers=new Map()
  const form={parentNode:{},getBoundingClientRect:()=>({height:formHeight})}
  const selection={getBoundingClientRect:()=>({height:selectionHeight})}
  const context=vm.createContext({ref:value=>({value}),computed:fn=>({get value(){return fn()}}),
   onMounted(){},onBeforeUnmount(fn){dispose=fn},watch(){},nextTick:async()=>{},
   defineProps:()=>props,defineEmits:()=>()=>{},crypto:{randomUUID:()=> 'test'},
   setInterval(){},clearInterval(){},location:{hostname:'unit.test',reload(){reloads++}},performance,
+  setTimeout(fn,delay){timers.set(++timerId,{fn,delay});return timerId},clearTimeout(id){timers.delete(id)},
   document:{getElementById:id=>id.endsWith('-screen')?form:selection},
   MutationObserver:class{constructor(fn){sync=fn}observe(){}disconnect(){}},
   ResizeObserver:class{observe(){}disconnect(){}},
   Date:class extends Date{static now(){return now()}},request,loadCheckoutLibrary,paymentMessage,reusableCheckout})
- vm.runInContext(source+';globalThis.ui={pay,pause,busy,preparing,retryLoading,retained,message,formOpen,observeScreen,needsReview,buttonLabel,awaitingVerification};',context)
+ vm.runInContext(source+';globalThis.ui={pay,pause,verify,busy,preparing,retryLoading,retained,message,formOpen,observeScreen,needsReview,buttonLabel,awaitingVerification};',context)
  context.ui.observeScreen()
- return {ui:context.ui,props,dispose:()=>dispose(),reloads:()=>reloads,resize:(button,screen)=>{selectionHeight=button;formHeight=screen;sync()}}
+ return {ui:context.ui,props,timers,dispose:()=>dispose(),reloads:()=>reloads,resize:(button,screen)=>{selectionHeight=button;formHeight=screen;sync()}}
 }
 function sdk(onMount=()=>{}) {
  let finish
@@ -138,4 +140,30 @@ test('a genuinely different SDK offers reload instead of an endless download ret
 test('submitted payments offer verification instead of another checkout',async()=>{
  const {ui}=harness({request:async()=>({name:'submitted',status:'pending',browser_event:'completed'}),loadCheckoutLibrary:async()=>{throw Error('Must not open')}})
  await ui.pay();assert.equal(ui.awaitingVerification.value,true)
+})
+
+test('submitted verification retries are bounded and never submit another payment',async()=>{
+ const calls=[]
+ const {ui,timers,dispose}=harness({request:async(service,method)=>{
+  calls.push(method);return {name:'submitted',status:'pending',browser_event:'completed'}
+ },loadCheckoutLibrary:async()=>{throw Error('Must not open')}})
+ await ui.pay();await ui.verify()
+ for(let i=0;i<12;i++){
+  assert.equal(timers.size,1)
+  const [id,timer]=[...timers][0];assert.ok(timer.delay>=15000)
+  timers.delete(id);timer.fn();await new Promise(resolve=>setImmediate(resolve))
+ }
+ assert.equal(timers.size,0)
+ assert.equal(calls.filter(x=>x==='start').length,1)
+ assert.equal(calls.filter(x=>x==='reconcile').length,13)
+ assert.ok(calls.every(x=>['start','reconcile'].includes(x)))
+ dispose();assert.equal(timers.size,0)
+})
+
+test('verified or disposed checkout cancels further verification',async()=>{
+ let status='pending'
+ const {ui,timers,dispose}=harness({request:async()=>({name:'submitted',status,browser_event:'completed'})})
+ await ui.pay();await ui.verify();assert.equal(timers.size,1)
+ status='succeeded';await ui.verify();assert.equal(timers.size,0)
+ dispose();assert.equal(timers.size,0)
 })

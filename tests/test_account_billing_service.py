@@ -154,6 +154,21 @@ class BillingService(unittest.TestCase):
             self.make()
         self.assertEqual(bill.status,'Unpaid')
 
+    def test_unchanged_preferences_keep_draft_and_pending_checkout(self):
+        self.a.payment_method='Card'
+        bill=self.b.make_invoice(self.a,draft=True)
+        self.gateway.assert_no_active=lambda *args:(_ for _ in ()).throw(ValueError('Pending checkout'))
+        self.b.preferences('Individual','a@test','Card')
+        self.assertEqual(bill.status,'Draft')
+        self.assertEqual(self.b.invoice(start_paid=True)['invoice'],bill.name)
+
+    def test_changed_preferences_replace_unsubmitted_draft(self):
+        self.a.payment_method='Card'
+        bill=self.b.make_invoice(self.a,draft=True)
+        self.b.preferences('Gold','a@test','Card')
+        self.assertEqual(bill.status,'Void')
+        self.assertEqual(self.b.make_invoice(self.a,draft=True).plan,'Gold')
+
     def test_daily_renews_expired_paid_account_once_without_unlocking(self):
         self.a.paid_until=self.now-timedelta(days=1)
         expiry=self.a.paid_until
@@ -270,5 +285,19 @@ class BillingService(unittest.TestCase):
         bill=self.make();bill.billed_to='<script>alert(1)</script>'
         result=self.b.document_html(bill)
         self.assertNotIn('<script>',result);self.assertIn('&lt;script&gt;',result)
+
+    def test_billing_history_only_exposes_submitted_rejections_and_local_archive_preserves_rows(self):
+        bill=self.make()
+        for key,event,tx in [('declined','completed','1234567890'),('unsubmitted',None,None)]:
+            self.rows[('IL CyberSource Attempt',key)]=Row(name=key,kind='subscription',invoice=bill.name,
+                status='failed',browser_event=event,transaction_id=tx)
+        result=self.b.status()
+        self.assertEqual([r.name for r in result['failed_payments']],['declined'])
+        self.fake.conf.update(il_local_card_test=True,il_local_billing_hidden_invoices=[bill.name])
+        self.assertEqual(self.b.status()['invoices'],[])
+        self.assertEqual(self.b.status()['failed_payments'],[])
+        self.assertIn((self.b.INVOICE,bill.name),self.rows)
+        self.fake.conf.il_local_card_test=False
+        self.assertEqual(len(self.b.status()['invoices']),1)
 
 if __name__=='__main__':unittest.main()

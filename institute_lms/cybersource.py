@@ -8,7 +8,7 @@ import hmac
 import json
 import time
 import uuid
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlencode
 import frappe
 from frappe.utils import now_datetime, get_datetime, get_url
 from .cybersource_contract import minor, origin, session_request, verify_transaction, authentication_only
@@ -17,6 +17,7 @@ from .cybersource_transport import request, ProviderUnavailable, SessionRejected
 DT = 'IL CyberSource Attempt'
 KINDS = {'tuition': 'IL Invoice', 'subscription': 'IL Account Invoice', 'platform': 'IL Provider Invoice', 'usage': 'IL Usage Invoice'}
 ACTIVE = ('creating', 'pending', 'review')
+RECONCILE_INTERVAL = 15
 
 
 def attempt_environment(attempt):
@@ -155,6 +156,14 @@ def public(a):
     result['retry_allowed'] = a.status == 'cancelled'
     result['session_unavailable'] = bool(json.loads(a.evidence or '{}').get('session_creation_failed'))
     result['resume_allowed'] = resumable(a)
+    if a.status == 'pending' and a.last_checked:
+        remaining = max(0, RECONCILE_INTERVAL - (now_datetime() - get_datetime(a.last_checked)).total_seconds())
+        result['next_check_after'] = time.time() + remaining
+    if a.status == 'failed' and any(
+            app.get('name') == 'ics_arc' and str(app.get('reasonCode')) == '491'
+            for app in json.loads(a.evidence or '{}').get('applications', [])):
+        result['message'] = ('Payment was rejected by the acquiring bank or processor (code 491). '
+                             'Your paid plan was not activated. Contact SISU support before retrying.')
     if a.status in ACTIVE and a.session_expires and not result['resume_allowed']:
         result['retry_after'] = float(a.session_expires) + 300
     return result
@@ -227,9 +236,15 @@ def availability(kind, invoice):
     configured = (isinstance(root, dict) and root.get('enabled') is True
                   and root.get('mode') in ('sandbox', 'live')
                   and (root.get('mode') == 'sandbox' or root.get('live_checkout_approved') is True))
-    return {'paused': payment_paused(),
+    result = {'paused': payment_paused(),
             'available': bool(not payment_paused() and configured and scope in (root.get('merchants') or {})),
             'mode': root.get('mode') if configured else 'unavailable'}
+    if result['available'] and kind == 'subscription' and frappe.conf.get('il_local_card_test') is True:
+        checkout_origin = settings(scope, for_reconciliation=True)['origin']
+        current = str(getattr(getattr(frappe.local, 'request', None), 'host_url', '')).rstrip('/')
+        if current != checkout_origin:
+            result['checkout_url'] = checkout_origin + '/campus?' + urlencode({'checkout_invoice': invoice}) + '#subscription'
+    return result
 
 
 @frappe.whitelist(methods=['POST'])
@@ -343,8 +358,8 @@ def reconcile(attempt):
     # Lock before checking the cooldown; concurrent polls must not multiply provider requests.
     a = frappe.get_doc(DT, a.name, for_update=True)
     if a.status in ('succeeded', 'failed', 'cancelled'): return public(a)
-    if a.last_checked and (now_datetime() - get_datetime(a.last_checked)).total_seconds() < 300:
-        return dict(public(a), message='Verification is pending. Check again in five minutes.')
+    if a.last_checked and (now_datetime() - get_datetime(a.last_checked)).total_seconds() < RECONCILE_INTERVAL:
+        return dict(public(a), message='Payment confirmation is still pending. Check again shortly; do not pay again.')
     a.last_checked = now_datetime(); save(a); frappe.db.commit()
     try:
         result = request(c, 'POST', '/tss/v2/searches', {

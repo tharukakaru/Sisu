@@ -23,6 +23,16 @@ def transaction():
             {'name': 'ics_auth', 'reasonCode': 100}, {'name': 'ics_bill', 'reasonCode': 100}]}}
 
 
+def acquirer_rejection():
+    row = transaction()
+    row['orderInformation'] = {}
+    row['applicationInformation'] = {'reasonCode': 491, 'applications': [
+        {'name': 'ics_arc', 'reasonCode': '491', 'rFlag': 'DAGGREJECTED'},
+        {'name': 'ics_auth'}, {'name': 'ics_bill'}, {'name': 'ics_decision'},
+        {'name': 'ics_decision_early', 'reasonCode': '100'}]}
+    return row
+
+
 class Contract(unittest.TestCase):
     def setUp(self):
         self.binding = dict(merchant_id='sandbox_merchant', reference=REFERENCE, amount_minor=10000, currency='LKR')
@@ -51,6 +61,21 @@ class Contract(unittest.TestCase):
 
     def test_verified_auth_and_capture(self):
         self.assertEqual(verify_transaction(transaction(), self.binding), 'succeeded')
+
+    def test_pre_authorization_acquirer_rejection_without_amount(self):
+        self.assertEqual(verify_transaction(acquirer_rejection(), self.binding), 'failed')
+
+    def test_acquirer_rejection_does_not_bypass_binding_or_conflicting_results(self):
+        for change in ('merchant', 'reference', 'amount', 'authorization', 'capture', 'unknown'):
+            with self.subTest(change=change):
+                row = acquirer_rejection()
+                if change == 'merchant': row['merchantId'] = 'other'
+                if change == 'reference': row['clientReferenceInformation']['code'] = 'other'
+                if change == 'amount': row['orderInformation'] = {'amountDetails': {'totalAmount': '1.00', 'currency': 'LKR'}}
+                if change == 'authorization': row['applicationInformation']['applications'][1]['reasonCode'] = '100'
+                if change == 'capture': row['applicationInformation']['applications'][2]['reasonCode'] = '100'
+                if change == 'unknown': row['applicationInformation']['applications'].append({'name': 'unknown'})
+                with self.assertRaises(ValueError): verify_transaction(row, self.binding)
 
     def test_authorization_alone_does_not_grant(self):
         t = transaction();t['applicationInformation']['applications'].pop()
@@ -275,6 +300,17 @@ class Service(unittest.TestCase):
         self.m.request=MagicMock(side_effect=[{'totalCount':2,'_embedded':{'transactionSummaries':[{'id':first['id']},{'id':second['id']}]}},first,second])
         self.assertEqual(self.m.reconcile('attempt')['status'],'pending');self.m.settle.assert_not_called()
 
+    def test_acquirer_rejection_is_failed_without_activating_subscription(self):
+        row = acquirer_rejection()
+        self.m.request = MagicMock(side_effect=[{'totalCount': 1, '_embedded': {
+            'transactionSummaries': [{'id': row['id']}]}}, row])
+        result = self.m.reconcile('attempt')
+        self.assertEqual(result['status'], 'failed')
+        self.assertIn('code 491', result['message'])
+        self.assertEqual(self.a.transaction_id, row['id'])
+        self.assertIsNone(self.a.active_key)
+        self.m.settle.assert_not_called()
+
     def test_truncated_report_never_auto_allocates(self):
         self.m.request=MagicMock(return_value={'totalCount':11,'_embedded':{'transactionSummaries':[{'id':transaction()['id']}]}})
         self.assertEqual(self.m.reconcile('attempt')['status'],'pending');self.m.settle.assert_not_called()
@@ -294,8 +330,15 @@ class Service(unittest.TestCase):
         self.assertEqual(self.m.reconcile('attempt')['status'],'pending');self.m.settle.assert_not_called()
 
     def test_poll_cooldown(self):
-        self.a.last_checked=datetime(2026,10,30,9,59)
+        self.a.last_checked=datetime(2026,10,30,9,59,55)
         self.m.request=MagicMock();self.m.reconcile('attempt');self.m.request.assert_not_called()
+
+    def test_submitted_payment_can_be_verified_after_thirty_seconds(self):
+        self.a.last_checked = datetime(2026,10,30,9,59,29)
+        self.m.request = MagicMock(side_effect=[{'totalCount':1, '_embedded': {
+            'transactionSummaries':[{'id':transaction()['id']}]}}, transaction()])
+        self.assertEqual(self.m.reconcile('attempt')['status'], 'succeeded')
+        self.m.settle.assert_called_once()
 
     def test_invoice_changed_keeps_verified_money_for_review(self):
         self.m.source=lambda *a,**kw:(Row(status='Paid'),None,'scope',10000,'LKR')
@@ -353,6 +396,26 @@ class Service(unittest.TestCase):
             invoice.currency = 'LKR'
             self.f.session.user = 'someone-else@test'
             with self.assertRaises(ValueError): m.source('subscription', 'invoice')
+
+    def test_local_subscription_handoff_preserves_invoice_and_stops_at_https(self):
+        self.f.conf = {'il_local_card_test': True, 'il_cybersource': {
+            'enabled': True, 'mode': 'live', 'live_checkout_approved': True,
+            'merchants': {'scope': {}}}}
+        self.f.local = Row(request=Row(host_url='http://127.0.0.1:5400/'))
+        self.m.settings = MagicMock(return_value={'origin': 'https://checkout.localhost:5440'})
+        result = self.m.availability('subscription', 'invoice & another')
+        self.assertEqual(result['checkout_url'], 'https://checkout.localhost:5440/campus?checkout_invoice=invoice+%26+another#subscription')
+        self.m.settings.assert_called_once_with('scope', for_reconciliation=True)
+        self.f.local.request.host_url = 'https://checkout.localhost:5440/'
+        self.assertNotIn('checkout_url', self.m.availability('subscription', 'invoice'))
+        self.f.conf['il_payments_paused'] = True
+        self.f.local.request.host_url = 'http://127.0.0.1:5400/'
+        self.assertNotIn('checkout_url', self.m.availability('subscription', 'invoice'))
+
+    def test_production_checkout_does_not_redirect_to_local_test_host(self):
+        self.f.conf = {'il_cybersource': {'enabled': True, 'mode': 'live',
+            'live_checkout_approved': True, 'merchants': {'scope': {}}}}
+        self.assertNotIn('checkout_url', self.m.availability('subscription', 'invoice'))
 
     def test_other_student_and_foreign_tenant_are_denied(self):
         api=types.ModuleType('institute_lms.api')

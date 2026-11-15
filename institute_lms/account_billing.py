@@ -5,6 +5,7 @@ DocTypes. Browser data cannot verify a country, settle an invoice or start a tri
 """
 import json
 import html
+import base64
 from datetime import timedelta
 import frappe
 from frappe.utils import get_datetime, now_datetime
@@ -210,10 +211,18 @@ def status():
         if gateway_ready
         else 'Online checkout is currently unavailable. No automatic card collection is performed.'
     )
+    invoices=frappe.get_all(INVOICE,filters={'subscription':a.name},fields=['name','plan','currency','amount_minor','period_start','period_end','status','paid_at','receipt_number','creation'],order_by='creation desc',limit_page_length=60)
+    # Local QA can archive a test run from the view without deleting financial evidence.
+    hidden=set(frappe.conf.get('il_local_billing_hidden_invoices') or []) if frappe.conf.get('il_local_card_test') is True else set()
+    invoices=[bill for bill in invoices if bill.name not in hidden]
+    failed=frappe.get_all('IL CyberSource Attempt',filters={'kind':'subscription','invoice':['in',[bill.name for bill in invoices] or ['__none__']],
+        'status':'failed','browser_event':['in',['processing','completed']]},
+        fields=['name','invoice','amount_minor','currency','creation','transaction_id'],order_by='creation desc',limit_page_length=60)
+    failed=[row for row in failed if row.transaction_id]
     return dict(account=public_account(a), plans=plans,gateway_ready=gateway_ready,
                 bank_instructions=str(frappe.conf.get('il_subscription_bank_instructions') or ''),
                 gateway_message=gateway_message,
-                invoices=frappe.get_all(INVOICE,filters={'subscription':a.name},fields=['name','plan','currency','amount_minor','period_start','period_end','status','paid_at','receipt_number','creation'],order_by='creation desc',limit_page_length=60))
+                invoices=invoices,failed_payments=failed)
 
 @frappe.whitelist(methods=['POST'])
 def preferences(plan, billing_email, payment_method='Card'):
@@ -221,13 +230,15 @@ def preferences(plan, billing_email, payment_method='Card'):
     if plan not in (('Student',) if a.role=='Student' else PLANS): frappe.throw('Invalid plan')
     if payment_method not in ('Card','Bank transfer'): frappe.throw('Choose a payment method')
     frappe.utils.validate_email_address(billing_email,throw=True)
+    before=(a.plan,a.next_plan,a.billing_email,a.payment_method)
     if a.paid_until and get_datetime(a.paid_until)>now_datetime():
         a.next_plan = plan if plan != a.plan else None
     else: a.plan=plan; a.next_plan=None
     a.billing_email=billing_email; a.payment_method=payment_method
     save(a)
-    # Only unpaid offers are replaced. Settled financial history is immutable.
-    void_open(a)
+    # Re-saving the same selection must retain its resumable draft checkout.
+    # Changed billing details still replace open offers; settled history is immutable.
+    if before!=(a.plan,a.next_plan,a.billing_email,a.payment_method):void_open(a)
     return public_account(a)
 
 @frappe.whitelist(methods=['POST'])
@@ -342,7 +353,20 @@ def record_verified_payment(invoice, reference, received_minor, currency, channe
     a.paid_until=bill.period_end;a.anchor_day=bill.anchor_day;a.plan=bill.plan;a.next_plan=None
     save(a)
     queue_document(bill,'Receipt')
+    queue_payment_sms(bill,a)
     return bill
+
+
+def queue_payment_sms(bill, account):
+    if not frappe.conf.get('il_subscription_sms_enabled'):
+        return
+    frappe.db.savepoint('subscription_sms_queue')
+    try:
+        from .subscription_sms import queue_paid
+        queue_paid(bill,account)
+    except Exception:
+        frappe.db.rollback(save_point='subscription_sms_queue')
+        frappe.log_error(title='Subscription SMS queue needs review',message='Paid invoice '+bill.name+' was preserved; notification could not be queued.')
 
 @frappe.whitelist(methods=['POST'])
 def confirm_bank_payment(invoice, reference, amount_minor, reason):
@@ -356,27 +380,28 @@ def confirm_bank_payment(invoice, reference, amount_minor, reason):
     return {'receipt':bill.receipt_number}
 
 def document_html(bill):
-    e=lambda value:html.escape(str(value or 'â€”'))
+    e=lambda value:html.escape(str(value or '-'))
     total=f'{e(bill.currency)} {int(bill.amount_minor)/100:,.2f}'
     heading='Payment receipt' if bill.status=='Paid' else 'Draft plan checkout' if bill.status=='Draft' else 'Subscription invoice'
-    return f'''<!doctype html><html><head><meta charset="utf-8"><title>{e(heading)} Â· {e(bill.name)}</title>
+    return f'''<!doctype html><html><head><meta charset="utf-8"><title>{e(heading)}  -  {e(bill.name)}</title>
     <style>body{{font:15px Arial;color:#28203b;margin:50px auto;max-width:850px;padding:30px}}header{{display:flex;justify-content:space-between;border-bottom:3px solid #56288d;padding-bottom:28px}}h1{{color:#56288d}}table{{width:100%;border-collapse:collapse;margin:35px 0}}td,th{{padding:18px 10px;text-align:left;border-bottom:1px solid #ddd}}.total{{text-align:right;font-size:25px}}small{{color:#655975}}@media print{{body{{margin:0;padding:25px}}}}</style></head><body>
-    <header><div><h1>sisu.</h1><p>SISU Academy Â· Monthly subscription</p></div><div><h2>{e(heading)}</h2><p>{e(bill.name)}</p><b>{e(bill.status)}</b></div></header>
+    <header><div><h1>sisu.</h1><p>SISU Academy  -  Monthly subscription</p></div><div><h2>{e(heading)}</h2><p>{e(bill.name)}</p><b>{e(bill.status)}</b></div></header>
     <p>Bill to: <b>{e(bill.billed_to)}</b><br>{e(bill.billing_email)}</p>
-    <p>Issued: {e(bill.creation)}<br>Subscription: {e(bill.subscription)}<br>Service period: {e(bill.period_start)} â†’ {e(bill.period_end)} (end exclusive)</p>
-    <table><tr><th>Description</th><th>Quantity</th><th>Amount</th></tr><tr><td>{e(bill.plan)} Â· fixed monthly subscription</td><td>1 month</td><td>{total}</td></tr></table>
-    <p class="total">Total Â· {total}</p><p>Receipt: {e(bill.receipt_number)}<br>Payment date: {e(bill.paid_at)}<br>Payment method: {e(bill.payment_channel)}</p>
+    <p>Issued: {e(bill.creation)}<br>Subscription: {e(bill.subscription)}<br>Service period: {e(bill.period_start)}  to  {e(bill.period_end)} (end exclusive)</p>
+    <table><tr><th>Description</th><th>Quantity</th><th>Amount</th></tr><tr><td>{e(bill.plan)}  -  fixed monthly subscription</td><td>1 month</td><td>{total}</td></tr></table>
+    <p class="total">Total  -  {total}</p><p>Receipt: {e(bill.receipt_number)}<br>Payment date: {e(bill.paid_at)}<br>Payment method: {e(bill.payment_channel)}</p>
     <small>Class tuition is billed separately by the teacher or institute. Provider active-student usage, where applicable, is invoiced separately. An unpaid invoice is not proof of payment. This is a subscription billing document, not a tax invoice.</small></body></html>'''
 
 def queue_document(bill,kind):
     if bill.billing_email:
-        frappe.sendmail(recipients=[bill.billing_email],subject=f'SISU {kind} Â· {bill.name}',message=document_html(bill),delayed=True)
+        frappe.sendmail(recipients=[bill.billing_email],subject=f'SISU {kind}  -  {bill.name}',message=document_html(bill),delayed=True)
 
 @frappe.whitelist(methods=['POST'])
 def document(invoice):
     bill=frappe.get_doc(INVOICE,invoice)
     if not privileged() and bill.subscription!=account().name:frappe.throw('Invoice unavailable',frappe.PermissionError)
-    return {'html':document_html(bill),'filename':bill.name+'.html'}
+    from .subscription_receipt import render
+    return {'pdf':base64.b64encode(render(bill)).decode('ascii'),'filename':bill.name+'.pdf'}
 
 def daily():
     if frappe.conf.get('il_control_plane'):return

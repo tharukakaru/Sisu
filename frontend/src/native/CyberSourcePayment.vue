@@ -32,9 +32,17 @@ function observeScreen(){
 const paused=ref(false),popup=ref(false),available=ref(false),busy=ref(false),message=ref('')
 const attempt=ref(null),gatewayMode=ref('unavailable'),retained=ref(false),blocked=ref(false),paid=ref(false)
 let submissionGrant=null
+let verificationTimer,verificationChecks=0
+function scheduleVerification(result){
+ clearTimeout(verificationTimer)
+ if(disposed||result.status!=='pending'||!['processing','completed'].includes(result.browser_event)||verificationChecks>=12)return
+ const delay=Math.max(15000,(Number(result.next_check_after||0)*1000-Date.now())+1000)
+ verificationTimer=setTimeout(()=>{verificationChecks++;verify()},delay)
+}
 const heldStatus=ref(null),clock=ref(Date.now())
 const preparing=ref(false),loadingText=ref(''),loadingSince=ref(0),retryLoading=ref(false)
 const reloadRequired=ref(false)
+const checkoutUrl=ref('')
 let session,queuedContext,disposed=false,generation=0,clockTimer=setInterval(()=>{clock.value=Date.now()},1000)
 function loadingStep(text){preparing.value=true;loadingText.value=text;loadingSince.value=Date.now();clock.value=Date.now()}
 function measure(stage,started){if(['localhost','checkout.localhost','127.0.0.1'].includes(location.hostname))console.debug('[SISU checkout timing]',stage,Math.round(performance.now()-started)+'ms')}
@@ -43,8 +51,8 @@ const retryCountdown=computed(()=>`${Math.floor(remaining.value/60)}:${String(re
 const displayMessage=computed(()=>heldStatus.value?paymentMessage(heldStatus.value,props.kind,clock.value):message.value)
 const awaitingVerification=computed(()=>!paid.value&&heldStatus.value?.status==='pending'&&(!!heldStatus.value?.transaction_id||['processing','completed'].includes(heldStatus.value?.browser_event)))
 const needsReview=computed(()=>heldStatus.value?.status==='review'&&!heldStatus.value?.resume_allowed)
-const buttonLabel=computed(()=>reloadRequired.value?'Reload page':paid.value?'Payment verified':busy.value?'Opening checkout…':heldStatus.value?.session_unavailable?'Retry opening checkout':retryLoading.value?'Retry loading checkout':retained.value?'Resume card checkout':remaining.value?`Retry available in ${retryCountdown.value}`:blocked.value?'Check and reopen checkout':props.review?'Continue to card payment':'Pay securely · LKR')
-onMounted(async()=>{try{const r=await request('cybersource','availability',{kind:props.kind,invoice:props.invoice});available.value=r.available;paused.value=!!r.paused;gatewayMode.value=r.mode||'unavailable';await nextTick();if(!disposed&&props.review)observeScreen()}catch{available.value=false}})
+const buttonLabel=computed(()=>checkoutUrl.value?'Continue to secure checkout':reloadRequired.value?'Reload page':paid.value?'Payment verified':busy.value?'Opening checkout…':heldStatus.value?.session_unavailable?'Retry opening checkout':retryLoading.value?'Retry loading checkout':retained.value?'Resume card checkout':remaining.value?`Retry available in ${retryCountdown.value}`:blocked.value?'Check and reopen checkout':props.review?'Continue to card payment':'Pay securely · LKR')
+onMounted(async()=>{try{const r=await request('cybersource','availability',{kind:props.kind,invoice:props.invoice});available.value=r.available;paused.value=!!r.paused;gatewayMode.value=r.mode||'unavailable';checkoutUrl.value=r.checkout_url||'';if(checkoutUrl.value)message.value='Continue on the secure checkout site with this same invoice. You may need to sign in again. Opening checkout does not charge you.';await nextTick();if(!disposed&&props.review)observeScreen()}catch{available.value=false}})
 function cleanup(){try{session?.destroy()}catch{}session=null;retained.value=false;showForm(false)}
 function pause(){
  preparing.value=false
@@ -53,18 +61,20 @@ function pause(){
  // A full page refresh recovers the same unsubmitted attempt through the server.
 }
 watch(()=>props.visible,value=>{if(!value)pause()})
-onBeforeUnmount(()=>{disposed=true;generation++;queuedContext=null;screenObserver?.disconnect();screenResize?.disconnect();clearInterval(clockTimer);cleanup()})
+onBeforeUnmount(()=>{disposed=true;generation++;queuedContext=null;screenObserver?.disconnect();screenResize?.disconnect();clearInterval(clockTimer);clearTimeout(verificationTimer);cleanup()})
 async function verify(){
  if(busy.value)return
  busy.value=true
- try{const r=await request('cybersource','reconcile',{attempt:attempt.value});heldStatus.value=r;message.value=paymentMessage(r,props.kind);blocked.value=!r.retry_allowed&&r.status!=='failed';if(r.status==='succeeded'){paid.value=true;cleanup();emit('changed')}}
+ try{const r=await request('cybersource','reconcile',{attempt:attempt.value});heldStatus.value=r;message.value=paymentMessage(r,props.kind);blocked.value=!r.retry_allowed&&r.status!=='failed';scheduleVerification(r);if(r.status==='succeeded'){paid.value=true;cleanup();emit('changed')}}
  catch(e){message.value=e.message}finally{busy.value=false}
 }
 async function pay(){
  if(busy.value||paid.value||remaining.value)return
+ if(checkoutUrl.value){location.assign(checkoutUrl.value);return}
  if(reloadRequired.value){location.reload();return}
  if(paused.value){popup.value=true;return}
  busy.value=true
+ clearTimeout(verificationTimer);verificationChecks=0
  heldStatus.value=null
  retryLoading.value=false
  loadingStep('Preparing your secure checkout…')
@@ -81,7 +91,7 @@ async function pay(){
    attempt.value=r.name;gatewayMode.value=r.mode||gatewayMode.value
    submissionGrant=r.submission_grant||null
    message.value=paymentMessage(r,props.kind)
-   if(!r.session){heldStatus.value=r;blocked.value=!r.retry_allowed&&r.status!=='failed';if(r.status==='succeeded'){paid.value=true;emit('changed')}return}
+   if(!r.session){heldStatus.value=r;blocked.value=!r.retry_allowed&&r.status!=='failed';scheduleVerification(r);if(r.status==='succeeded'){paid.value=true;emit('changed')}return}
    queuedContext=r
    // A response arriving after close is retained only in this component, never in storage.
    stage='library-load'

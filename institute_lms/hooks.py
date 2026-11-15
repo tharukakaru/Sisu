@@ -97,6 +97,7 @@ scheduler_events['daily'].append('institute_lms.sandbox_notices.expiry')
 
 # Scoped owner invitations; dispatcher is a no-op on campus sites.
 scheduler_events['cron'].setdefault('*/1 * * * *', []).append('institute_lms.owner_invitation_delivery.dispatch')
+scheduler_events['cron'].setdefault('*/1 * * * *', []).append('institute_lms.subscription_sms.dispatch')
 
 # Presentation only: keep Frappe login handlers and verification intact.
 web_include_css = ["/assets/institute_lms/login-presentation.css?v=sisu-auth-20261115-signup"]

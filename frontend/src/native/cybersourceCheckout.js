@@ -50,7 +50,7 @@ export function paymentMessage(value, kind, now = Date.now()) {
     return value?.message || 'LKR 50 gateway test verification pending. Do not pay again.'
   }
   if (value?.status === 'succeeded') return 'Payment verified. Your invoice and access have been updated.'
-  if (value?.status === 'failed') return 'Payment declined. Your invoice remains unpaid.'
+  if (value?.status === 'failed') return value.message || 'Payment declined. Your paid plan was not activated.'
   if (value?.status === 'review') return 'This payment needs review. Please contact SISU before paying again.'
   if (value?.resume_allowed) return 'Payment has not been submitted. Continue to reopen your checkout.'
   if (value?.message) return value.message
