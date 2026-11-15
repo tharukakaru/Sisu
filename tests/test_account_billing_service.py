@@ -39,6 +39,7 @@ class BillingService(unittest.TestCase):
         self.catalog.plan=lambda name:defaults()[name]
         self.gateway=types.ModuleType('institute_lms.cybersource')
         self.gateway.payment_paused=lambda:True
+        self.gateway.assert_no_active=lambda *a:None
         self.patches=[patch.dict(sys.modules,{'institute_lms.plan_catalog':self.catalog,'institute_lms.cybersource':self.gateway}),patch.object(self.b,'frappe',self.fake),patch.object(self.b,'now_datetime',lambda:self.now),patch.object(self.b,'account',lambda **kw:self.a),patch.object(self.b,'save',self.save),patch.object(self.b,'queue_document',lambda bill,kind:self.sent.append((bill.name,kind))),patch.object(self.b,'require_owner',self.check_owner),patch.object(self.b,'country_code',lambda c:c if c in ('LK','US') else self.fake.throw('invalid country'))]
         for p in self.patches:p.start()
         self.addCleanup(lambda:[p.stop() for p in reversed(self.patches)])
@@ -111,13 +112,47 @@ class BillingService(unittest.TestCase):
     def get_doc(self,doctype,name=None,**kwargs):
         return Row(doctype) if isinstance(doctype,dict) else self.rows[(doctype,name)]
     def get_all(self,doctype,filters=None,fields=None,pluck=None,**kwargs):
-        out=[r for (d,n),r in self.rows.items() if d==doctype and all(r.get(k)==v for k,v in (filters or {}).items())]
+        out=[r for (d,n),r in self.rows.items() if d==doctype and all(
+            r.get(k) in v[1] if isinstance(v,list) and v[0]=='in' else r.get(k)==v
+            for k,v in (filters or {}).items())]
         return [r.get(pluck) for r in out] if pluck else out
     def get_value(self,doctype,filters,field=None,**kwargs):
         if isinstance(filters,str):rows=[self.rows[(doctype,filters)]] if (doctype,filters) in self.rows else []
         else:rows=self.get_all(doctype,filters)
         return rows[0].get(field or 'name') if rows else None
     def make(self):return self.b.make_invoice(self.a)
+
+    def test_customer_checkout_is_draft_not_debt_and_sends_no_invoice(self):
+        result=self.b.invoice(start_paid=True)
+        bill=self.rows[(self.b.INVOICE,result['invoice'])]
+        self.assertEqual(bill.status,'Draft')
+        self.assertEqual(self.b.invoice(start_paid=True)['invoice'],bill.name)
+        self.assertEqual(self.sent,[])
+        self.assertFalse(self.a.paid_until)
+        self.b.record_verified_payment(bill.name,'gateway:merchant:draft',600,'USD','Card')
+        self.assertEqual(bill.status,'Paid')
+        self.assertEqual(self.sent,[(bill.name,'Receipt')])
+
+    def test_replacing_draft_keeps_paid_history_and_blocks_active_checkout(self):
+        bill=self.b.make_invoice(self.a,draft=True)
+        self.gateway.assert_no_active=lambda *a:(_ for _ in ()).throw(ValueError('Pending checkout'))
+        with self.assertRaisesRegex(ValueError,'Pending checkout'):self.b.void_open(self.a)
+        self.assertEqual(bill.status,'Draft')
+        self.gateway.assert_no_active=lambda *a:None
+        self.b.void_open(self.a)
+        self.assertEqual(bill.status,'Void')
+
+    def test_pending_card_checkout_prevents_invoice_replacement(self):
+        bill=self.make()
+        def pending(*args):raise ValueError('Pending checkout must be reconciled')
+        self.gateway.assert_no_active=pending
+        with self.assertRaisesRegex(ValueError,'Pending checkout'):
+            self.b.void_open(self.a)
+        self.assertEqual(bill.status,'Unpaid')
+        self.now=bill.period_end
+        with self.assertRaisesRegex(ValueError,'Pending checkout'):
+            self.make()
+        self.assertEqual(bill.status,'Unpaid')
 
     def test_daily_renews_expired_paid_account_once_without_unlocking(self):
         self.a.paid_until=self.now-timedelta(days=1)

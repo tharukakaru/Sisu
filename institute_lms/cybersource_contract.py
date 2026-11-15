@@ -47,6 +47,31 @@ def session_request(reference, amount_minor, currency, checkout_origin, methods)
         'targetOrigins': [origin(checkout_origin)], 'clientVersion': '1.0',
         'country': 'LK', 'locale': 'en_GB', 'allowedCardNetworks': ['VISA', 'MASTERCARD'],
         'allowedPaymentTypes': methods, 'buttonType': 'CHECKOUT',
+        # Per-session styling; never changes the merchant's published experience.
+        # fontFamily must be a provider font name, not a CSS fallback stack.
+        'appearance': {'theme': 'LIGHT', 'variables': {
+            'backgroundColor': '#FBF9FE', 'textColor': '#282132',
+            'headerBackground': '#EEE6F7', 'headerForeground': '#452074',
+            'fontFamily': 'Raleway', 'borderRadius': '12px',
+            'paymentSelectionBackground': '#FFFFFF',
+            'inputBackground': '#FCFAFF', 'inputColor': '#282132',
+            'inputPlaceholderColor': '#6B5F75', 'inputBorderColor': '#9380AA',
+            'inputBorderStyle': 'solid', 'inputBorderRadius': '10px',
+            'inputHoverBorderColor': '#7544A8',
+            'inputFocusedBackground': '#FFFFFF', 'inputFocusedColor': '#282132',
+            'inputFocusedBorderColor': '#572B91', 'inputFocusedBorderStyle': 'solid',
+            'inputErrorBackground': '#FFF7F7', 'inputErrorColor': '#9D2438',
+            'inputErrorBorderColor': '#B52D43',
+            'buttonBackground': '#572B91', 'buttonForeground': '#FFFFFF',
+            'buttonShape': 'rect', 'buttonBorderColor': '#572B91',
+            'buttonBorderStyle': 'solid', 'buttonBorderRadius': '10px',
+            'buttonHoverBackground': '#452074', 'buttonHoverForeground': '#FFFFFF',
+            'buttonHoverBorderColor': '#452074',
+            'buttonFocusBackground': '#452074', 'buttonFocusForeground': '#FFFFFF',
+            'buttonFocusBorderColor': '#7544A8',
+            'buttonDisabledBackground': '#EEE7F5', 'buttonDisabledForeground': '#665475',
+            'buttonDisabledBorderColor': '#EEE7F5',
+        }},
         'captureMandate': {'billingType': 'FULL', 'requestEmail': True,
                            'requestShipping': False, 'requestSaveCredentials': False},
         'completeMandate': {'type': 'CAPTURE', 'consumerAuthentication': '3DS',
@@ -107,6 +132,22 @@ def verify_session(token, fetch_key, now=None):
     if claims.get('iat', now) > now + 30 or claims.get('nbf', now) > now + 30:
         raise ValueError('Session is not yet valid')
     return claims
+
+
+def authentication_only(data):
+    """Recognize non-financial 3DS setup/challenge records in authenticated TSS data."""
+    info = data.get('applicationInformation', {})
+    apps = info.get('applications', [])
+    if not isinstance(apps, list) or not apps or any(not isinstance(a, dict) for a in apps):
+        return False
+    codes = {a.get('name'): str(a.get('reasonCode', '')) for a in apps}
+    if len(codes) != len(apps):
+        return False
+    if codes == {'ics_pa_setup': '100'}:
+        return True
+    return (str(info.get('reasonCode')) == '475' and codes.get('ics_pa_enroll') == '475'
+            and set(codes) <= {'ics_pa_enroll', 'ics_arc', 'ics_auth', 'ics_bill', 'ics_decision_early'}
+            and all(not code for name, code in codes.items() if name != 'ics_pa_enroll'))
 
 
 def verify_transaction(data, attempt):

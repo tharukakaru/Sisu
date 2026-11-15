@@ -12,6 +12,7 @@ from .account_billing_rules import VERSION, PLANS, amount, next_anniversary, tri
 
 ACCOUNT = 'IL Account Subscription'
 INVOICE = 'IL Account Invoice'
+OPEN_INVOICES = ['Draft', 'Unpaid']
 
 def provider_lkr(a):
     if a.role not in ('Teacher', 'Institute'):
@@ -217,7 +218,7 @@ def require_owner():
 def admin_accounts():
     require_owner()
     return dict(accounts=frappe.get_all(ACCOUNT,fields=['name','display_name','role','plan','requested_country','billing_country','country_status','trial_until','paid_until'],order_by='modified desc',limit_page_length=200),
-                invoices=frappe.get_all(INVOICE,filters={'status':'Unpaid'},fields=['name','subscription','amount_minor','currency','country','plan','period_start','period_end'],limit_page_length=200))
+                invoices=frappe.get_all(INVOICE,filters={'status':['in', OPEN_INVOICES]},fields=['name','subscription','amount_minor','currency','country','plan','period_start','period_end','status'],limit_page_length=200))
 
 @frappe.whitelist(methods=['POST'])
 def verify_country(subscription, country, reason):
@@ -230,12 +231,14 @@ def verify_country(subscription, country, reason):
     return public_account(a)
 
 def void_open(a):
-    for name in frappe.get_all(INVOICE,filters={'subscription':a.name,'status':'Unpaid'},pluck='name'):
+    from .cybersource import assert_no_active
+    for name in frappe.get_all(INVOICE,filters={'subscription':a.name,'status':['in', OPEN_INVOICES]},pluck='name'):
         bill=frappe.get_doc(INVOICE,name,for_update=True)
-        if bill.status!='Unpaid':continue
+        if bill.status not in OPEN_INVOICES:continue
+        assert_no_active('subscription', bill.name)
         bill.status='Void'; bill.open_key=None; save(bill)
 
-def make_invoice(a, start_paid=False):
+def make_invoice(a, start_paid=False, draft=False):
     if a.role == 'Student':
         frappe.throw('Student dashboard access is included; no student platform subscription invoice is created')
     if not provider_lkr(a) and (a.country_status not in ('Verified','Change requested') or not a.billing_country):
@@ -247,10 +250,12 @@ def make_invoice(a, start_paid=False):
         frappe.throw('Your free trial is still active. Billing begins after it ends.')
     if a.paid_until and now<get_datetime(a.paid_until):
         frappe.throw('Your subscription is already paid. Your next invoice is created on the renewal date.')
-    existing=frappe.db.get_value(INVOICE,{'subscription':a.name,'status':'Unpaid'},'name')
+    existing=frappe.db.get_value(INVOICE,{'subscription':a.name,'status':['in', OPEN_INVOICES]},'name')
     if existing:
         bill=frappe.get_doc(INVOICE,existing,for_update=True)
         if now<get_datetime(bill.period_end): return bill
+        from .cybersource import assert_no_active
+        assert_no_active('subscription', bill.name)
         bill.status='Void'; bill.open_key=None; save(bill)
     # A lapsed account resumes from a new checkout date; no fees for locked-out months.
     start=get_datetime(a.paid_until) if a.paid_until and now-get_datetime(a.paid_until)<timedelta(days=1) else now
@@ -258,17 +263,17 @@ def make_invoice(a, start_paid=False):
     plan=a.next_plan or a.plan
     return save(frappe.get_doc(dict(doctype=INVOICE,subscription=a.name,open_key=a.name,plan=plan,country=a.billing_country,
         currency=currency_for(a),amount_minor=price(a,plan),period_start=start,
-        period_end=next_anniversary(start,anchor),anchor_day=anchor,status='Unpaid',version=VERSION,
+        period_end=next_anniversary(start,anchor),anchor_day=anchor,status='Draft' if draft else 'Unpaid',version=VERSION,
         billed_to=a.display_name,billing_email=a.billing_email or a.user)))
 
 @frappe.whitelist(methods=['POST'])
 def invoice(start_paid=False):
     a=account(create=True,lock=True)
-    prior=frappe.db.get_value(INVOICE,{'subscription':a.name,'status':'Unpaid'},'name')
-    bill=make_invoice(a, start_paid=start_paid in (True,1,'1'))
-    if bill.name!=prior:queue_document(bill,'Invoice')
+    bill=make_invoice(a, start_paid=start_paid in (True,1,'1'), draft=True)
+    # A plan selection is a draft checkout, not an issued debt or a payment.
+    # Only a verified settlement creates a receipt and activates access.
     return {'invoice':bill.name,'amount_minor':bill.amount_minor,'currency':bill.currency,'checkout_available':False,
-            'message':'Invoice created. Review the amount and use the available payment option below. No charge has been made.'}
+            'message':'Your plan checkout is ready. Payment is not completed; no subscription has been activated.'}
 
 @frappe.whitelist(methods=['POST'])
 def cancel(cancel=True):
@@ -297,7 +302,7 @@ def record_verified_payment(invoice, reference, received_minor, currency, channe
     if bill.status=='Paid':
         if bill.payment_reference==reference:return bill
         frappe.throw('Invoice already paid with another reference')
-    if bill.status!='Unpaid' or not a.enabled: frappe.throw('Invoice is not payable')
+    if bill.status not in OPEN_INVOICES or not a.enabled: frappe.throw('Invoice is not payable')
     if get_datetime(bill.period_end)<=now_datetime(): frappe.throw('Invoice expired; review the payment before refund or allocation')
     if frappe.db.exists(INVOICE,{'payment_reference':reference}): frappe.throw('Payment reference already used')
     if frappe.conf.get('il_usage_billing_enabled') and frappe.db.exists('IL Usage Invoice',{'payment_reference':reference}):
@@ -324,7 +329,7 @@ def confirm_bank_payment(invoice, reference, amount_minor, reason):
 def document_html(bill):
     e=lambda value:html.escape(str(value or 'â€”'))
     total=f'{e(bill.currency)} {int(bill.amount_minor)/100:,.2f}'
-    heading='Payment receipt' if bill.status=='Paid' else 'Subscription invoice'
+    heading='Payment receipt' if bill.status=='Paid' else 'Draft plan checkout' if bill.status=='Draft' else 'Subscription invoice'
     return f'''<!doctype html><html><head><meta charset="utf-8"><title>{e(heading)} Â· {e(bill.name)}</title>
     <style>body{{font:15px Arial;color:#28203b;margin:50px auto;max-width:850px;padding:30px}}header{{display:flex;justify-content:space-between;border-bottom:3px solid #56288d;padding-bottom:28px}}h1{{color:#56288d}}table{{width:100%;border-collapse:collapse;margin:35px 0}}td,th{{padding:18px 10px;text-align:left;border-bottom:1px solid #ddd}}.total{{text-align:right;font-size:25px}}small{{color:#655975}}@media print{{body{{margin:0;padding:25px}}}}</style></head><body>
     <header><div><h1>sisu.</h1><p>SISU Academy Â· Monthly subscription</p></div><div><h2>{e(heading)}</h2><p>{e(bill.name)}</p><b>{e(bill.status)}</b></div></header>
@@ -350,7 +355,7 @@ def daily():
         a=frappe.get_doc(ACCOUNT,name,for_update=True)
         if a.role == 'Student':continue
         if state(a)['available']:continue
-        old=frappe.db.get_value(INVOICE,{'subscription':a.name,'status':'Unpaid'},'name')
+        old=frappe.db.get_value(INVOICE,{'subscription':a.name,'status':['in', OPEN_INVOICES]},'name')
         # Initial invoices are requested by the user; renew only an established paid account.
         if not a.paid_until:continue
         if old:continue  # Do not accumulate invoices while access is locked; user may request a fresh period.

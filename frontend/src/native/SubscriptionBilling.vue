@@ -1,5 +1,5 @@
 <script setup>
-import {computed,ref,onMounted} from 'vue'
+import {computed,ref,onMounted,onBeforeUnmount,watch,nextTick} from 'vue'
 import {request} from './client'
 import Icon from '../Icon.vue'
 import BrandLogo from '../BrandLogo.vue'
@@ -10,17 +10,36 @@ const props=defineProps({standalone:Boolean})
 const emit=defineEmits(['changed'])
 const data=ref(null),busy=ref(false),error=ref(''),notice=ref(''),showPlans=ref(false),showManage=ref(false)
 const form=ref({plan:'Individual',billing_email:'',payment_method:'Card'})
-const checkoutInvoice=ref('')
+const checkoutInvoice=ref(''),checkoutOpen=ref(false),checkoutFormOpen=ref(false)
+const checkoutDialog=ref(null),checkoutClose=ref(null)
+const checkoutBill=computed(()=>data.value?.invoices.find(b=>b.name===checkoutInvoice.value))
+let checkoutReturnFocus,previousOverflow
+watch(checkoutOpen,async open=>{
+ if(open){checkoutReturnFocus=document.activeElement;previousOverflow=document.body.style.overflow;document.body.style.overflow='hidden';await nextTick();checkoutClose.value?.focus()}
+ else{document.body.style.overflow=previousOverflow||'';checkoutReturnFocus?.focus()}
+})
+onBeforeUnmount(()=>{if(checkoutOpen.value)document.body.style.overflow=previousOverflow||''})
+function checkoutKeys(event){
+ if(event.key==='Escape'){event.preventDefault();checkoutOpen.value=false;return}
+ if(event.key!=='Tab')return
+ const controls=[...checkoutDialog.value.querySelectorAll('button:not([disabled]),a[href],input,select,textarea,iframe,[tabindex="0"]')].filter(el=>el.getClientRects().length)
+ const first=controls[0],last=controls.at(-1)
+ if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus()}
+ else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus()}
+}
+const drafts=computed(()=>data.value?.invoices.filter(b=>b.status==='Draft')||[])
+const history=computed(()=>data.value?.invoices.filter(b=>b.status!=='Draft')||[])
+function openCheckout(name){checkoutInvoice.value=name;checkoutOpen.value=true}
 const account=computed(()=>data.value?.account)
 const usd=(n,currency=account.value?.currency||'USD')=>new Intl.NumberFormat('en-US',{style:'currency',currency,minimumFractionDigits:2}).format(n/100)
 const date=value=>value?new Intl.DateTimeFormat('en',{day:'numeric',month:'short',year:'numeric'}).format(new Date(String(value).replace(' ','T'))):'—'
 const canInvoice=computed(()=>account.value?.billing_ready&&account.value.state!=='Active'&&!account.value.cancel_at_end)
-async function load(){data.value=await request('account_billing','status');const a=data.value.account;form.value={plan:a.next_plan||a.plan,billing_email:a.billing_email||'',payment_method:a.payment_method||'Card'};if((props.standalone||a.onboarding_payment_required)&&!data.value.invoices.some(i=>i.status==='Unpaid'))showPlans.value=true}
+async function load(){data.value=await request('account_billing','status');const a=data.value.account;form.value={plan:a.next_plan||a.plan,billing_email:a.billing_email||'',payment_method:a.payment_method||'Card'};if((props.standalone||a.onboarding_payment_required)&&!data.value.invoices.some(i=>['Draft','Unpaid'].includes(i.status)))showPlans.value=true}
 async function run(action){busy.value=true;error.value='';notice.value='';try{await action()}catch(e){error.value=e.message}finally{busy.value=false}}
 async function togglePlans(){if(showPlans.value){showPlans.value=false;return}await run(async()=>{await load();showPlans.value=true})}
 async function save(){await run(async()=>{await request('account_billing','preferences',form.value);await load();notice.value='Billing preferences saved.';showManage.value=false})}
-async function choose(plan){await run(async()=>{await request('account_billing','preferences',{...form.value,plan});await load();if(account.value.state!=='Active'){const bill=await request('account_billing','invoice',{start_paid:1});checkoutInvoice.value=bill.invoice;await load()}showPlans.value=false;notice.value=account.value.next_plan?'Your new plan starts at the next renewal.':'Your plan is selected. Use Pay now on the unpaid invoice below to continue; access changes only after verified payment.'})}
-async function invoice(){await run(async()=>{const r=await request('account_billing','invoice',{start_paid:1});checkoutInvoice.value=r.invoice;await load();notice.value=r.message})}
+async function choose(plan){await run(async()=>{await request('account_billing','preferences',{...form.value,plan});await load();if(account.value.state!=='Active'){const bill=await request('account_billing','invoice',{start_paid:1});openCheckout(bill.invoice);await load()}showPlans.value=false;notice.value=account.value.next_plan?'Your new plan starts at the next renewal.':'Your plan is selected. Continue from your draft checkout below. Payment is not completed; access changes only after verified payment.'})}
+async function invoice(){await run(async()=>{const r=await request('account_billing','invoice',{start_paid:1});openCheckout(r.invoice);await load();notice.value=r.message})}
 async function cancel(){await run(async()=>{await request('account_billing','cancel',{cancel:!account.value.cancel_at_end});await load();notice.value=account.value.cancel_at_end?'Renewal cancelled. Your current access keeps its end date.':'Renewal resumed.'})}
 async function download(name){await run(async()=>{const result=await request('account_billing','document',{invoice:name});const url=URL.createObjectURL(new Blob([result.html],{type:'text/html'}));const a=document.createElement('a');a.href=url;a.download=result.filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)})}
 onMounted(async()=>{await run(load)})
@@ -47,14 +66,33 @@ onMounted(async()=>{await run(load)})
     <div class="billing-payment-row"><div><p class="billing-primary">{{account.payment_method||'Card'}}</p><p>{{account.billing_email}}</p></div><span class="billing-caption">{{data.gateway_ready?'':'Online payments coming soon'}}</span></div>
     <form v-if="showManage" class="billing-manage" @submit.prevent="save"><label for="billing-email">Invoice email<input id="billing-email" v-model="form.billing_email" type="email" required autocomplete="email"></label><label for="payment-preference">Preferred payment method<select id="payment-preference" v-model="form.payment_method"><option>Card</option><option>Bank transfer</option></select></label><p class="billing-caption">Saving a preference does not charge you. Online checkout appears only when configured; every payment needs your approval.</p><p v-if="form.payment_method==='Bank transfer'" class="billing-caption bank-instructions">{{data.bank_instructions||'Contact SISU for bank transfer details before sending a payment.'}}</p><div class="billing-actions"><button class="billing-button" :disabled="busy">Save changes</button><button type="button" class="billing-link" :disabled="busy" @click="cancel">{{account.cancel_at_end?'Resume renewal':'Cancel renewal'}}</button></div></form>
    </section>
+   <section v-if="drafts.length" class="billing-section" aria-labelledby="draft-checkouts"><h2 id="draft-checkouts">Your plan checkout</h2><article v-for="bill in drafts" :key="bill.name" class="billing-plan-row"><div><h3>{{bill.plan}} · {{usd(bill.amount_minor,bill.currency)}}</h3><p>Payment not completed · Draft</p><p class="billing-caption">This is an unfinished checkout, not an unpaid bill. Your plan activates after payment is verified.</p></div><button class="billing-button" :disabled="busy" @click="openCheckout(bill.name)">Continue checkout</button></article></section>
    <section class="billing-section" aria-labelledby="invoice-history">
     <div class="billing-section-heading"><h2 id="invoice-history">Invoices & receipts</h2><button v-if="canInvoice" class="billing-button" :disabled="busy" @click="invoice">{{account.state==='Trial'?'Start paid plan':'Create invoice'}}</button></div>
-    <div v-if="!data.invoices.length" class="billing-empty"><Icon name="FileText" :size="22"/><div><p class="billing-primary">No invoices yet</p><p>Your invoices will appear here after your free trial.</p></div></div>
-    <div v-else class="billing-table"><table><thead><tr><th>Date</th><th>Invoice</th><th>Amount</th><th>Status</th><th><span class="sr-only">Download</span></th></tr></thead><tbody><tr v-for="bill in data.invoices" :key="bill.name"><td>{{date(bill.creation||bill.period_start)}}</td><td>{{bill.name}}</td><td>{{usd(bill.amount_minor,bill.currency)}}</td><td>{{bill.status}}</td><td><button class="billing-link" :disabled="busy" @click="download(bill.name)"><Icon name="Download" :size="16"/>{{bill.status==='Paid'?'Download receipt':'Download invoice'}}</button><CyberSourcePayment v-if="bill.status==='Unpaid'" kind="subscription" :invoice="bill.name" @changed="load"/></td></tr></tbody></table><p class="billing-caption">For a PDF, open the downloaded document and choose Print → Save as PDF.</p></div>
+    <div v-if="!history.length" class="billing-empty"><Icon name="FileText" :size="22"/><div><p class="billing-primary">No invoices yet</p><p>Your invoices will appear here after your free trial.</p></div></div>
+    <div v-else class="billing-table"><table><thead><tr><th>Date</th><th>Invoice</th><th>Amount</th><th>Status</th><th><span class="sr-only">Download</span></th></tr></thead><tbody><tr v-for="bill in history" :key="bill.name"><td>{{date(bill.creation||bill.period_start)}}</td><td>{{bill.name}}</td><td>{{usd(bill.amount_minor,bill.currency)}}</td><td>{{bill.status}}</td><td><button class="billing-link" :disabled="busy" @click="download(bill.name)"><Icon name="Download" :size="16"/>{{bill.status==='Paid'?'Download receipt':'Download invoice'}}</button><button v-if="bill.status==='Unpaid'" class="billing-button" @click="openCheckout(bill.name)">Open checkout</button></td></tr></tbody></table><p class="billing-caption">For a PDF, open the downloaded document and choose Print → Save as PDF.</p></div>
    </section>
    <footer class="billing-footer"><span>Prices in {{account.currency}}. Class tuition is separate.</span><button class="billing-link" :disabled="busy" @click="run(async()=>{await load();emit('changed')})">Refresh billing</button></footer>
   </template>
- <div v-if="checkoutInvoice" class="subscription-checkout"><section role="dialog" aria-modal="true" aria-labelledby="checkout-heading"><button class="billing-link" @click="checkoutInvoice=''">Close</button><h2 id="checkout-heading">Review your plan payment</h2><p>Your invoice is ready. Continue below to secure checkout.</p><CyberSourcePayment kind="subscription" :invoice="checkoutInvoice" @changed="load"/><p>No access is activated until payment is verified.</p></section></div></main>
+ <div v-if="checkoutInvoice" v-show="checkoutOpen" class="subscription-checkout" :class="{'checkout-form-open':checkoutFormOpen}" @keydown="checkoutKeys">
+  <section ref="checkoutDialog" role="dialog" aria-modal="true" aria-labelledby="checkout-heading" aria-describedby="checkout-description">
+   <header class="checkout-header">
+    <div class="checkout-heading-icon"><Icon name="CreditCard" :size="24"/></div>
+    <button ref="checkoutClose" type="button" class="checkout-close" aria-label="Close payment checkout" @click="checkoutOpen=false"><Icon name="X" :size="21"/></button>
+    <h2 id="checkout-heading">Complete your payment</h2>
+    <p id="checkout-description">Review your plan, then continue to card checkout.</p>
+   </header>
+   <div class="checkout-body">
+    <dl v-if="checkoutBill" class="checkout-summary">
+     <div class="checkout-plan"><dt>Selected plan</dt><dd>SISU {{checkoutBill.plan}}<span>Monthly subscription</span></dd></div>
+     <div class="checkout-total"><dt>Due today</dt><dd>{{usd(checkoutBill.amount_minor,checkoutBill.currency)}}</dd></div>
+    </dl>
+    <p class="checkout-renewal"><Icon name="CircleCheck" :size="16"/>One payment. No automatic renewals.</p>
+    <CyberSourcePayment :key="checkoutInvoice" kind="subscription" :invoice="checkoutInvoice" :visible="checkoutOpen" review @changed="load" @screen-change="checkoutFormOpen=$event"/>
+   </div>
+   <footer class="checkout-footer"><Icon name="ShieldCheck" :size="19"/><p>Your plan activates after payment is verified.<br><span>Close this popup to pause. Keep this browser tab open to resume.</span></p></footer>
+  </section>
+ </div></main>
 </template>
 <style scoped>
 .billing-page{max-width:1080px;margin:0 auto;color:var(--student-ink,#29252f);--billing-line:var(--student-border,#e8e5ed);--billing-muted:var(--student-muted,#797480);--billing-surface:var(--student-card,#fff)}
@@ -70,4 +108,28 @@ onMounted(async()=>{await run(load)})
 </style>
 
 <style scoped>.billing-plans{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px}.billing-plans>.billing-caption{grid-column:1/-1}</style>
-<style scoped>.subscription-checkout{position:fixed;inset:0;z-index:1500;background:#25173588;display:grid;place-items:center;padding:24px}.subscription-checkout>section{width:min(620px,100%);max-height:85vh;overflow:auto;background:#fff;padding:28px;border-radius:20px;color:#292033}.subscription-checkout p{margin:16px 0;line-height:1.7}</style>
+<style scoped>
+.subscription-checkout{position:fixed;inset:0;z-index:1500;background:#21162b99;display:grid;place-items:center;padding:24px;box-sizing:border-box}
+.subscription-checkout>section{width:min(600px,100%);max-height:calc(100dvh - 48px);display:flex;flex-direction:column;overflow:hidden;background:#fff;border-radius:16px;color:#282132;box-shadow:0 24px 72px #1e122c33;text-align:left}
+.checkout-header{position:relative;flex-shrink:0;display:grid;grid-template-columns:36px 1fr;align-items:center;gap:12px;padding:24px 72px 24px 28px;background:#572b91;color:#fff}
+.checkout-heading-icon{width:36px;height:36px;display:grid;place-items:center;color:#fff;background:#7046a3;border-radius:10px}
+.checkout-close{position:absolute;top:20px;right:18px;display:grid;place-items:center;width:44px;height:44px;padding:0;background:transparent;border:0;border-radius:10px;color:#fff;cursor:pointer}
+.checkout-close:hover{background:#7046a3}.checkout-close:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.checkout-header h2{font-size:24px;line-height:1.25;letter-spacing:-.025em;font-weight:750;margin:0;color:#fff}
+.subscription-checkout #checkout-heading{color:#fff}
+.subscription-checkout .checkout-header p{grid-column:1/-1;font-size:14px;line-height:1.6;color:#eee5fa;margin:0}
+.checkout-body{min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#9b85b8 #f6f2fa;padding:24px 28px 28px;background:#fff}
+.checkout-summary{margin:0;padding:18px 20px;background:#f3edf9;border-radius:12px}
+.checkout-summary>div{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}
+.checkout-summary dt{font-size:14px;color:#655474;line-height:1.6}
+.checkout-summary dd{margin:0;text-align:right;font-size:16px;font-weight:650;color:#38234f}
+.checkout-plan dd span{display:block;font-size:13px;font-weight:400;line-height:1.6;color:#655474;margin-top:2px}
+.checkout-summary .checkout-total{align-items:center;border-top:1px solid #dcd0e9;margin-top:16px;padding-top:16px}
+.checkout-total dt{font-size:14px;font-weight:600;color:#452074}.checkout-total dd{font-size:28px;letter-spacing:-.03em;line-height:1.3;font-weight:750;font-variant-numeric:tabular-nums;color:#452074}
+.subscription-checkout .checkout-renewal{display:flex;align-items:center;gap:7px;margin:12px 0 22px;font-size:12px;color:#655474;line-height:1.5}.checkout-renewal svg{color:#572b91;flex-shrink:0}
+.checkout-form-open .checkout-header>p,.checkout-form-open .checkout-plan{display:none}
+.checkout-form-open .checkout-summary .checkout-total{margin-top:0;padding-top:0;border-top:0}
+.checkout-footer{flex-shrink:0;display:flex;align-items:flex-start;gap:10px;border-top:1px solid #e7ddef;padding:16px 28px;background:#faf7fd}.checkout-footer>svg{color:#572b91;flex-shrink:0;margin-top:2px}.subscription-checkout .checkout-footer p{font-size:12px;color:#51435f;line-height:1.6;margin:0}.checkout-footer p span{color:#6b5f75}
+.subscription-checkout ::selection{background:#e5d8f5;color:#38234f}
+@media(max-width:540px){.subscription-checkout{padding:12px}.subscription-checkout>section{max-height:calc(100dvh - 24px)}.checkout-header{padding:20px 58px 20px 18px;grid-template-columns:28px 1fr;gap:10px}.checkout-heading-icon{width:28px;height:32px;background:transparent}.checkout-header h2{font-size:21px}.checkout-close{top:14px;right:8px}.checkout-body{padding:18px 16px 22px}.checkout-summary{padding:14px 16px}.checkout-total dd{font-size:26px}.checkout-footer{padding:14px 18px}.checkout-footer p span{font-size:11px}}
+</style>

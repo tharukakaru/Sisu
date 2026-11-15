@@ -68,7 +68,7 @@
       "label": "Status",
       "fieldtype": "Select",
       "read_only": 1,
-      "options": "Unpaid\nPaid\nVoid"
+        "options": "Draft\nUnpaid\nPaid\nVoid"
     },
     {
       "fieldname": "paid_at",

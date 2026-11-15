@@ -3,10 +3,11 @@ import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import vm from 'node:vm'
 import {ref,computed} from 'vue'
+import {ownerSections,ownerSection,isLocalOwner} from '../src/native/ownerNavigation.js'
 const source=readFileSync(new URL('../src/native/ControlPlane.vue',import.meta.url),'utf8')
 function harness(fail=false){
  const calls=[]
- const context=vm.createContext({ref,computed,nextTick:async()=>{},onMounted(){},document:{getElementById:()=>null},object:v=>v||{},
+ const context=vm.createContext({ref,computed,ownerSections,ownerSection,isLocalOwner,window:{location:{hash:'',protocol:'http:',hostname:'127.0.0.1',port:'5401'}},nextTick:async()=>{},onMounted(){},document:{getElementById:()=>null},object:v=>v||{},
  request:async(module,method,args)=>{calls.push({module,method,args});if(method==='register'&&fail)throw Error('Duplicate institute code');if(method==='control_room')return {organizations:[]};if(method==='admin_get')return {plans:Object.fromEntries(['Individual','Silver','Gold','Platinum'].map(p=>[p,{monthly_lkr:2500}]))};if(method==='summary')return {offer:{amount_minor:20000,available:true},receipts:[]};return {}}})
  vm.runInContext(source.match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'')+'\nglobalThis.ui={action,form,error,choose,monthlyLkr,monthlyPrice,saveOffer,tenant,reason,state,selectedCommercialPlan,saveCommercialPlan,commercialPlanNames};',context)
  return {ui:context.ui,calls}
