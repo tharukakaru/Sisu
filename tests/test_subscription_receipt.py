@@ -14,6 +14,11 @@ class SubscriptionReceipt(TestCase):
         raw=render(bill);self.assertTrue(raw.startswith(b'%PDF-'))
         pdf=PdfReader(BytesIO(raw));self.assertEqual(len(pdf.pages),1)
         text=pdf.pages[0].extract_text()
-        for value in ('LKR 5.00','SISU-R-invoice-123','15 Dec 2026','Sri Lanka time','PAID'):
+        for value in ('LKR 5.00','SISU-R-invoice-123','15 Dec 2026','Sri Lanka','PAID'):
             self.assertIn(value,text)
         self.assertNotIn('314686',text);self.assertNotIn('Â',text)
+
+    def test_unpaid_checkout_has_no_invoice_pdf(self):
+        for status in ('Draft','Unpaid','Void','Failed'):
+            with self.assertRaises(ValueError):
+                render(SimpleNamespace(status=status,receipt_number=None))

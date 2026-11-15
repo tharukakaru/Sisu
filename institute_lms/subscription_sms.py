@@ -20,7 +20,7 @@ def queue_paid(bill, account):
     teacher_phone = frappe.db.get_value('IL Verified Phone', {'user':account.user}, 'phone')
     admin_phone = frappe.conf.get('il_subscription_admin_sms_phone')
     rows = [('teacher',teacher_phone,f'Payment confirmed: {amount} for your {bill.plan} plan. Active until {date_label(bill.period_end)}. Receipt {bill.receipt_number}. Download your PDF in Subscription.'),
-            ('admin',admin_phone,f'{identity} joined the {bill.plan} paid plan. Payment confirmed: {amount}. Invoice {bill.name}. Active until {date_label(bill.period_end)}.')]
+            ('admin',admin_phone,f'{identity} joined the {bill.plan} paid plan. Payment confirmed: {amount}. Invoice {bill.receipt_number}. Active until {date_label(bill.period_end)}.')]
     for recipient,phone,body in rows:
         if not phone:
             continue

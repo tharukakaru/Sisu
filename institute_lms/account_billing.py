@@ -6,6 +6,7 @@ DocTypes. Browser data cannot verify a country, settle an invoice or start a tri
 import json
 import html
 import base64
+import secrets
 from datetime import timedelta
 import frappe
 from frappe.utils import get_datetime, now_datetime
@@ -348,13 +349,35 @@ def record_verified_payment(invoice, reference, received_minor, currency, channe
     if frappe.conf.get('il_usage_billing_enabled') and frappe.db.exists('IL Usage Invoice',{'payment_reference':reference}):
         frappe.throw('Payment reference already allocated to a usage invoice')
     bill.status='Paid';bill.open_key=None;bill.payment_reference=reference;bill.payment_channel=channel
-    bill.paid_at=now_datetime();bill.receipt_number='SISU-R-'+bill.name;save(bill)
+    bill.paid_at=now_datetime();bill.receipt_email_status='Pending'
+    issue_paid_number(bill)
     a.onboarding_payment_required=0
     a.paid_until=bill.period_end;a.anchor_day=bill.anchor_day;a.plan=bill.plan;a.next_plan=None
     save(a)
     queue_document(bill,'Receipt')
     queue_payment_sms(bill,a)
     return bill
+
+
+def issue_paid_number(bill):
+    """Allocate a public number only for verified payment, never from timestamps or IDs."""
+    if bill.status != 'Paid':
+        frappe.throw('An invoice number requires verified payment')
+    for _ in range(20):
+        number = f'SISU-{secrets.randbelow(10**10):010d}'
+        if frappe.db.exists(INVOICE, {'receipt_number': number}):
+            continue
+        frappe.db.savepoint('paid_invoice_number')
+        bill.receipt_number = number
+        try:
+            save(bill)
+            return
+        except (frappe.DuplicateEntryError, frappe.UniqueValidationError):
+            frappe.db.rollback(save_point='paid_invoice_number')
+            # A different unique constraint (e.g. transaction reference) is not retryable.
+            if not frappe.db.exists(INVOICE, {'receipt_number': number}):
+                raise
+    frappe.throw('Could not allocate a unique invoice number; payment requires reconciliation')
 
 
 def queue_payment_sms(bill, account):
@@ -393,15 +416,20 @@ def document_html(bill):
     <small>Class tuition is billed separately by the teacher or institute. Provider active-student usage, where applicable, is invoiced separately. An unpaid invoice is not proof of payment. This is a subscription billing document, not a tax invoice.</small></body></html>'''
 
 def queue_document(bill,kind):
-    if bill.billing_email:
-        frappe.sendmail(recipients=[bill.billing_email],subject=f'SISU {kind}  -  {bill.name}',message=document_html(bill),delayed=True)
+    # The durable Pending marker is saved with payment. The worker renders and
+    # queues the PDF separately so email/PDF errors cannot undo a verified payment.
+    if bill.status == 'Paid' and bill.billing_email:
+        frappe.enqueue('institute_lms.subscription_documents.deliver', invoice=bill.name,
+                       enqueue_after_commit=True, queue='short')
 
 @frappe.whitelist(methods=['POST'])
 def document(invoice):
     bill=frappe.get_doc(INVOICE,invoice)
     if not privileged() and bill.subscription!=account().name:frappe.throw('Invoice unavailable',frappe.PermissionError)
+    if bill.status != 'Paid' or not bill.receipt_number:
+        frappe.throw('An invoice is available only after payment is verified')
     from .subscription_receipt import render
-    return {'pdf':base64.b64encode(render(bill)).decode('ascii'),'filename':bill.name+'.pdf'}
+    return {'pdf':base64.b64encode(render(bill)).decode('ascii'),'filename':bill.receipt_number+'.pdf'}
 
 def daily():
     if frappe.conf.get('il_control_plane'):return

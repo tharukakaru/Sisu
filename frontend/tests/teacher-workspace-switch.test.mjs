@@ -31,9 +31,9 @@ async function component(name){
  try{return (await import(output.href)).default}finally{await unlink(output)}
 }
 
-test('workspace circles keep pending membership locked, switch accepted context and report failures',async()=>{
+test('workspace dropdown keeps pending membership locked, switches accepted context and reports failures',async()=>{
  const previous={location:globalThis.location,document:globalThis.document,window:globalThis.window,__workspaceRequest:globalThis.__workspaceRequest}
- globalThis.document={body:{style:{overflow:''}}}
+ globalThis.document={body:{style:{overflow:''}},addEventListener(){},removeEventListener(){}}
  globalThis.window={dispatchEvent(){}}
  const calls=[],destinations=[];let fail=false,app
  globalThis.location={assign:path=>destinations.push(path)}
@@ -45,6 +45,7 @@ test('workspace circles keep pending membership locked, switch accepted context 
   const active={institute:'school',title:'Accepted School',kind:'Institute',status:'Active',locked:false}
   const root={children:[]};app=renderer.createApp(Switch,{data:{selected:'personal',choices:[personal,pending,active]},locked:true})
   const vm=app.mount(root)
+  assert.ok(nodes(root).some(n=>n.tag==='summary'&&n.props['aria-label']==='Switch workspace: Personal'))
   assert.equal(button(root,'Pending School').props.disabled,false,'Pending tile can reveal request controls without opening the institute')
   assert.equal(button(root,'Join institute').props.disabled,true)
   assert.equal(button(root,'Accepted School').props.disabled,false,'Approved workspaces remain reachable during personal expiry')
@@ -102,5 +103,21 @@ test('header reflects personal paid plan, institute name, and urgent trial time'
    assert.equal(String(root.children[0].props.class).includes('teacher-trial--urgent'),urgent)
    app.unmount();app=null
   }
+ }finally{app?.unmount();Object.assign(globalThis,previous)}
+})
+
+test('selected institute name and logo appear in the compact trigger with broken-image fallback',async()=>{
+ const previous={document:globalThis.document};globalThis.document={addEventListener(){},removeEventListener(){}};let app
+ try{
+  const Switch=await component('TeacherWorkspaceSwitcher')
+  const data={selected:'school',choices:[{institute:'school',title:'Accepted Institute',kind:'Institute',image:'/institute-logo.png',status:'Active',locked:false}]}
+  const root={children:[]};app=renderer.createApp(Switch,{data});app.mount(root)
+  const summary=nodes(root).find(n=>n.tag==='summary')
+  assert.equal(summary.props['aria-label'],'Switch workspace: Accepted Institute')
+  const image=nodes(summary).find(n=>n.tag==='img')
+  assert.equal(image.props.src,'/institute-logo.png')
+  image.props.onError();await nextTick()
+  assert.equal(nodes(summary).some(n=>n.tag==='img'),false,'Unavailable logos fall back to an institute icon')
+  assert.ok(nodes(summary).some(n=>n.tag==='svg'))
  }finally{app?.unmount();Object.assign(globalThis,previous)}
 })

@@ -32,12 +32,13 @@ function observeScreen(){
 const paused=ref(false),popup=ref(false),available=ref(false),busy=ref(false),message=ref('')
 const attempt=ref(null),gatewayMode=ref('unavailable'),retained=ref(false),blocked=ref(false),paid=ref(false)
 let submissionGrant=null
-let verificationTimer,verificationChecks=0
+let verificationTimer
+const verificationChecks=ref(0),verificationIssue=ref(false)
 function scheduleVerification(result){
  clearTimeout(verificationTimer)
- if(disposed||result.status!=='pending'||!['processing','completed'].includes(result.browser_event)||verificationChecks>=12)return
+ if(disposed||result.status!=='pending'||!(result.transaction_id||['processing','completed'].includes(result.browser_event))||verificationChecks.value>=12)return
  const delay=Math.max(15000,(Number(result.next_check_after||0)*1000-Date.now())+1000)
- verificationTimer=setTimeout(()=>{verificationChecks++;verify()},delay)
+ verificationTimer=setTimeout(()=>{verificationChecks.value++;verify()},delay)
 }
 const heldStatus=ref(null),clock=ref(Date.now())
 const preparing=ref(false),loadingText=ref(''),loadingSince=ref(0),retryLoading=ref(false)
@@ -50,6 +51,8 @@ const remaining=computed(()=>heldStatus.value?.status==='pending'&&!heldStatus.v
 const retryCountdown=computed(()=>`${Math.floor(remaining.value/60)}:${String(remaining.value%60).padStart(2,'0')}`)
 const displayMessage=computed(()=>heldStatus.value?paymentMessage(heldStatus.value,props.kind,clock.value):message.value)
 const awaitingVerification=computed(()=>!paid.value&&heldStatus.value?.status==='pending'&&(!!heldStatus.value?.transaction_id||['processing','completed'].includes(heldStatus.value?.browser_event)))
+const verificationPaused=computed(()=>awaitingVerification.value&&verificationChecks.value>=12&&!busy.value)
+async function resumeVerification(){verificationChecks.value=0;await verify()}
 const needsReview=computed(()=>heldStatus.value?.status==='review'&&!heldStatus.value?.resume_allowed)
 const buttonLabel=computed(()=>checkoutUrl.value?'Continue to secure checkout':reloadRequired.value?'Reload page':paid.value?'Payment verified':busy.value?'Opening checkout…':heldStatus.value?.session_unavailable?'Retry opening checkout':retryLoading.value?'Retry loading checkout':retained.value?'Resume card checkout':remaining.value?`Retry available in ${retryCountdown.value}`:blocked.value?'Check and reopen checkout':props.review?'Continue to card payment':'Pay securely · LKR')
 onMounted(async()=>{try{const r=await request('cybersource','availability',{kind:props.kind,invoice:props.invoice});available.value=r.available;paused.value=!!r.paused;gatewayMode.value=r.mode||'unavailable';checkoutUrl.value=r.checkout_url||'';if(checkoutUrl.value)message.value='Continue on the secure checkout site with this same invoice. You may need to sign in again. Opening checkout does not charge you.';await nextTick();if(!disposed&&props.review)observeScreen()}catch{available.value=false}})
@@ -64,9 +67,9 @@ watch(()=>props.visible,value=>{if(!value)pause()})
 onBeforeUnmount(()=>{disposed=true;generation++;queuedContext=null;screenObserver?.disconnect();screenResize?.disconnect();clearInterval(clockTimer);clearTimeout(verificationTimer);cleanup()})
 async function verify(){
  if(busy.value)return
- busy.value=true
+ busy.value=true;verificationIssue.value=false
  try{const r=await request('cybersource','reconcile',{attempt:attempt.value});heldStatus.value=r;message.value=paymentMessage(r,props.kind);blocked.value=!r.retry_allowed&&r.status!=='failed';scheduleVerification(r);if(r.status==='succeeded'){paid.value=true;cleanup();emit('changed')}}
- catch(e){message.value=e.message}finally{busy.value=false}
+ catch(e){message.value=e.message;verificationIssue.value=true;if(heldStatus.value)scheduleVerification(heldStatus.value)}finally{busy.value=false}
 }
 async function pay(){
  if(busy.value||paid.value||remaining.value)return
@@ -74,7 +77,7 @@ async function pay(){
  if(reloadRequired.value){location.reload();return}
  if(paused.value){popup.value=true;return}
  busy.value=true
- clearTimeout(verificationTimer);verificationChecks=0
+ clearTimeout(verificationTimer);verificationChecks.value=0
  heldStatus.value=null
  retryLoading.value=false
  loadingStep('Preparing your secure checkout…')
@@ -151,11 +154,19 @@ async function pay(){
 }
 </script>
 <template><div v-if="available||paused" class="cybs-payment" :class="{'review-payment':review}">
- <button v-if="!needsReview&&!awaitingVerification&&!(review&&busy&&retained)" type="button" class="checkout-primary" :class="review ? '' : 'button primary small'" :disabled="busy||paid||remaining>0" @click="pay"><Icon v-if="review" :name="paid?'CircleCheck':remaining?'Clock3':'LockKeyhole'" :size="18"/><span>{{buttonLabel}}</span><Icon v-if="review&&!busy&&!paid&&!remaining" name="ArrowRight" :size="18"/></button>
- <button v-if="attempt&&!retained&&!paid" type="button" class="checkout-status-button" :class="review?'':'button subtle small'" :disabled="busy" @click="verify">Check payment status</button>
+ <button v-if="!paid&&!needsReview&&!awaitingVerification&&!(review&&busy&&retained)" type="button" class="checkout-primary" :class="review ? '' : 'button primary small'" :disabled="busy||paid||remaining>0" @click="pay"><Icon v-if="review" :name="paid?'CircleCheck':remaining?'Clock3':'LockKeyhole'" :size="18"/><span>{{buttonLabel}}</span><Icon v-if="review&&!busy&&!paid&&!remaining" name="ArrowRight" :size="18"/></button>
+ <section v-if="awaitingVerification||paid||needsReview" class="verification-state" :class="{'verification-success':paid,'verification-delayed':verificationPaused||needsReview}" role="status" aria-live="polite" aria-atomic="true">
+  <span class="verification-symbol"><Icon v-if="paid" name="CircleCheck" :size="28"/><Icon v-else-if="verificationPaused||needsReview" name="Clock3" :size="27"/><span v-else class="checkout-spinner" aria-hidden="true"></span></span>
+  <div><h3>{{paid?'Payment confirmed':needsReview?'Your payment needs review':verificationPaused?'Confirmation is taking longer':'Please wait…'}}</h3>
+   <p>{{paid?'Your payment has been verified. Your access is now updated.':needsReview?'We could not confirm the result automatically. Contact SISU with your payment details before trying to pay again.':verificationPaused?'Your payment is still unconfirmed. You can resume verification without making another payment.':verificationIssue?'Connection interrupted. We’re automatically retrying verification.':'We’re confirming your payment securely. This window will update automatically.'}}</p>
+   <span v-if="!paid" class="verification-reassurance"><Icon name="ShieldCheck" :size="15"/>Please don’t pay again while we confirm the result.</span>
+   <button v-if="verificationPaused" type="button" class="verification-resume" @click="resumeVerification">Resume verification<Icon name="RotateCcw" :size="16"/></button>
+  </div>
+ </section>
+ <button v-else-if="attempt&&!retained&&!paid&&!preparing" type="button" class="checkout-status-button" :class="review?'':'button subtle small'" :disabled="busy" @click="verify">{{busy?'Verifying…':'Verify previous attempt'}}</button>
  <div v-if="popup" role="alertdialog" aria-modal="true" aria-label="Payment unavailable" class="payment-unavailable"><p>Online checkout is temporarily unavailable. No payment has been taken.</p><button type="button" @click="popup=false">Close</button></div>
  <div v-if="preparing" class="checkout-loading" role="status" aria-live="polite"><span class="checkout-spinner" aria-hidden="true"></span><div><strong>{{loadingText}}</strong><p>{{clock-loadingSince>8000?'This is taking a little longer. Keep this tab open; you won’t be charged just for opening checkout.':'Your payment details stay with the secure payment provider.'}}</p></div></div>
- <p v-else-if="displayMessage&&!formOpen" class="checkout-message" role="status">{{displayMessage}}</p>
+ <p v-else-if="displayMessage&&!formOpen&&!awaitingVerification&&!paid&&!needsReview" class="checkout-message" role="status">{{displayMessage}}</p>
  <small v-if="!review||gatewayMode==='sandbox'">{{gatewayMode==='sandbox'?'Sandbox: test payments only.':'Customer-authorized LKR payments only.'}} No automatic renewals.</small>
  <div v-show="!formOpen" :id="checkoutTargetId" class="cybs-checkout-target"></div>
  <div v-if="review" :id="checkoutScreenId" class="cybs-checkout-screen"></div>
@@ -176,3 +187,15 @@ async function pay(){
 
 
 <style scoped>.payment-unavailable{position:fixed;top:30%;left:50%;transform:translateX(-50%);width:min(480px,85vw);box-sizing:border-box;text-align:left;line-height:1.6;z-index:1000;padding:28px;background:white;color:#231c30;border:1px solid #ddd;border-radius:16px;box-shadow:0 0 0 100vmax #0006}</style>
+
+<style scoped>
+.cybs-payment .verification-state{display:flex;align-items:flex-start;gap:17px;width:100%;box-sizing:border-box;padding:24px 20px;margin:8px 0;background:#f7f3fc;border-radius:12px;color:#572b91}
+.verification-symbol{width:44px;height:44px;display:grid;place-items:center;flex-shrink:0;background:#ebe1f5;border-radius:50%}.verification-symbol .checkout-spinner{width:24px;height:24px;margin:0;border-width:3px;border-color:#d6c5e7;border-top-color:#572b91}
+.cybs-payment .verification-state h3{font-size:19px;font-weight:700;letter-spacing:-.02em;line-height:1.35;margin:0 0 7px;color:#382448}
+.cybs-payment .verification-state p{font-size:14px;line-height:1.65;margin:0;color:#685573;max-width:48ch}
+.verification-reassurance{display:flex;align-items:flex-start;gap:7px;margin-top:16px;font-size:12px;line-height:1.6;color:#6a557b}.verification-reassurance svg{flex-shrink:0;margin-top:2px}
+.cybs-payment .verification-success{background:#edf7f1;color:#246b49}.verification-success .verification-symbol{background:#dceee3}.cybs-payment .verification-success h3{color:#24583d}.cybs-payment .verification-success p{color:#476653}
+.cybs-payment .verification-delayed{background:#fff7e9}.verification-delayed .verification-symbol{background:#f5e8ce;color:#876022}
+.verification-resume{display:inline-flex;align-items:center;gap:8px;margin-top:16px;padding:10px 14px;min-height:42px;border:1px solid #d6c4e6;border-radius:8px;background:white;color:#572b91;font:inherit;font-size:13px;font-weight:650;cursor:pointer}.verification-resume:hover{background:#eee6f6}.verification-resume:focus-visible{outline:2px solid #7544a8;outline-offset:3px}
+@media(max-width:480px){.cybs-payment .verification-state{padding:20px 16px;gap:12px}.verification-symbol{width:36px;height:36px}.cybs-payment .verification-state h3{font-size:18px}.cybs-payment .verification-state p{font-size:13px}}
+</style>

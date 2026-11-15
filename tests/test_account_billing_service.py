@@ -4,7 +4,7 @@ import sys
 import types
 import unittest
 from datetime import datetime, timedelta
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 class Row(dict):
     def __getattr__(self,k):return self.get(k)
@@ -32,6 +32,9 @@ class BillingService(unittest.TestCase):
         self.fake.throw=lambda msg,*args:(_ for _ in ()).throw(ValueError(msg))
         self.fake.get_doc=self.get_doc;self.fake.get_all=self.get_all
         self.fake.db=Row(get_value=self.get_value,exists=lambda doctype,filters:bool(self.get_value(doctype,filters,'name')),sql=lambda *a,**kw:[])
+        self.fake.db.savepoint=MagicMock();self.fake.db.rollback=MagicMock()
+        self.fake.DuplicateEntryError=type('DuplicateEntryError',(Exception,),{})
+        self.fake.UniqueValidationError=type('UniqueValidationError',(Exception,),{})
         self.fake.local=Row(request=Row(path='/api/method/institute_lms.api.classrooms'))
         self.fake.form_dict=Row()
         from institute_lms.plan_catalog_rules import defaults
@@ -208,17 +211,25 @@ class BillingService(unittest.TestCase):
         bill=self.make()
         result=self.b.record_verified_payment(bill.name,'gateway:merchant:abc',600,'USD','Card')
         self.assertEqual(result.status,'Paid');self.assertEqual(self.a.anchor_day,31)
+        self.assertRegex(result.receipt_number,r'^SISU-[0-9]{10}$')
+        issued=result.receipt_number
         expiry=self.a.paid_until
         self.b.record_verified_payment(bill.name,'gateway:merchant:abc',600,'USD','Card')
         self.assertEqual(self.a.paid_until,expiry);self.assertEqual(len(self.sent),1)
+        self.assertEqual(bill.receipt_number,issued)
         self.now=expiry
         next_bill=self.make()
         self.assertEqual(next_bill.period_end,datetime(2027,3,31,10))
+        self.assertIsNone(next_bill.receipt_number)
+        self.b.record_verified_payment(next_bill.name,'gateway:merchant:renewal',600,'USD','Card')
+        self.assertNotEqual(next_bill.receipt_number,issued)
+        self.assertEqual(len(self.sent),2)
     def test_wrong_payment_never_unlocks(self):
         bill=self.make()
         for cents,currency in [(599,'USD'),(900,'USD'),(600,'LKR')]:
             with self.assertRaises(ValueError):self.b.record_verified_payment(bill.name,'ref',cents,currency,'Card')
         self.assertEqual(bill.status,'Unpaid');self.assertIsNone(self.a.paid_until)
+        self.assertIsNone(bill.receipt_number);self.assertEqual(self.sent,[])
     def test_duplicate_payment_reference_rejected(self):
         bill=self.make();self.b.record_verified_payment(bill.name,'unique',600,'USD','Card')
         self.now=self.a.paid_until
@@ -300,4 +311,32 @@ class BillingService(unittest.TestCase):
         self.fake.conf.il_local_card_test=False
         self.assertEqual(len(self.b.status()['invoices']),1)
 
-if __name__=='__main__':unittest.main()
+
+    def test_random_number_collision_retries_without_sequential_fallback(self):
+        self.rows[(self.b.INVOICE,'old')]=Row(name='old',receipt_number='SISU-0000000007')
+        bill=self.make()
+        with patch.object(self.b.secrets,'randbelow',side_effect=[7,42]) as random:
+            self.b.record_verified_payment(bill.name,'unique',600,'USD','Card')
+        self.assertEqual(bill.receipt_number,'SISU-0000000042')
+        self.assertEqual(random.call_count,2)
+
+    def test_database_number_collision_is_retried(self):
+        bill=self.make();saved=self.save
+        def racing_save(row):
+            if row is bill and row.receipt_number=='SISU-0000000007':
+                self.rows[(self.b.INVOICE,'racing')]=Row(name='racing',receipt_number=row.receipt_number)
+                raise self.fake.UniqueValidationError()
+            return saved(row)
+        with patch.object(self.b,'save',racing_save),patch.object(self.b.secrets,'randbelow',side_effect=[7,42]):
+            self.b.record_verified_payment(bill.name,'unique',600,'USD','Card')
+        self.assertEqual(bill.receipt_number,'SISU-0000000042')
+        self.fake.db.rollback.assert_called_once_with(save_point='paid_invoice_number')
+
+    def test_unpaid_or_other_account_cannot_download_invoice(self):
+        bill=self.make()
+        with patch.object(self.b,'privileged',return_value=False):
+            with self.assertRaisesRegex(ValueError,'only after payment'):
+                self.b.document(bill.name)
+            bill.subscription='another-account'
+            with self.assertRaisesRegex(ValueError,'unavailable'):
+                self.b.document(bill.name)

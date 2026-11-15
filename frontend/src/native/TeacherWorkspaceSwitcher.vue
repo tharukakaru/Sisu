@@ -1,11 +1,31 @@
 <script setup>
-import {ref,computed,watch,nextTick,onBeforeUnmount} from 'vue'
-import {UserRound,Building2,LockKeyhole,Plus,Check,CheckCircle2,Trash2,X} from 'lucide-vue-next'
+import {ref,computed,watch,nextTick,onMounted,onBeforeUnmount} from 'vue'
+import {UserRound,Building2,LockKeyhole,Plus,Check,CheckCircle2,Trash2,X,ChevronDown} from 'lucide-vue-next'
 import {request} from './client'
-const props=defineProps({data:Object,locked:Boolean})
+const props=defineProps({data:Object,locked:Boolean,personalImage:String})
 const emit=defineEmits(['join','changed'])
 const busy=ref(''),error=ref(''),confirmCancel=ref(''),notice=ref(''),actionsFor=ref('')
 const confirmDialog=ref(null),keepButton=ref(null),noticeDialog=ref(null),okButton=ref(null),joinButton=ref(null),cancelledInstitute=ref('')
+const dropdown=ref(null),trigger=ref(null),menu=ref(null),expanded=ref(false),failedImages=ref({})
+const current=computed(()=>props.data?.choices?.find(item=>item.institute===props.data.selected))
+const logo=item=>!failedImages.value[item?.institute]&&(item?.image||(item?.kind==='Personal'?props.personalImage:''))
+function closeMenu(restore=false){if(dropdown.value)dropdown.value.open=false;expanded.value=false;actionsFor.value='';if(restore)trigger.value?.focus()}
+function toggled(event){expanded.value=event.target.open;if(!expanded.value)actionsFor.value=''}
+function outside(event){if(!popup.value&&!dropdown.value?.contains(event.target))closeMenu()}
+function focusOutside(event){if(!popup.value&&!dropdown.value?.contains(event.relatedTarget))closeMenu()}
+function escapeMenu(event){if(popup.value)return;event.preventDefault();event.stopPropagation();closeMenu(true)}
+async function focusMenu(){if(dropdown.value)dropdown.value.open=true;expanded.value=true;await nextTick();menu.value?.querySelector('button:not(:disabled)')?.focus()}
+function moveFocus(event){
+ if(!['ArrowDown','ArrowUp','Home','End'].includes(event.key))return
+ const buttons=[...menu.value.querySelectorAll('button:not(:disabled)')]
+ if(!buttons.length)return
+ event.preventDefault()
+ const index=buttons.indexOf(document.activeElement)
+ const next=event.key==='Home'?0:event.key==='End'?buttons.length-1:(index+(event.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length
+ buttons[next].focus()
+}
+function join(){closeMenu();emit('join')}
+onMounted(()=>document.addEventListener('pointerdown',outside))
 const popup=computed(()=>notice.value?'notice':confirmCancel.value?'confirm':'')
 const confirming=computed(()=>props.data?.choices?.find(item=>item.institute===confirmCancel.value))
 watch(confirming,item=>{
@@ -25,16 +45,16 @@ watch(popup,async(value,previous)=>{
   else{noticeDialog.value?.close?.();confirmDialog.value?.showModal?.();keepButton.value?.focus()}
  }else{
   confirmDialog.value?.close?.();noticeDialog.value?.close?.();document.body.style.overflow=previousOverflow||''
-  if(previous==='notice')joinButton.value?.focus()
+  if(previous==='notice'){closeMenu();trigger.value?.focus()}
  }
 })
-onBeforeUnmount(()=>{if(popup.value)document.body.style.overflow=previousOverflow||''})
+onBeforeUnmount(()=>{document.removeEventListener('pointerdown',outside);if(popup.value)document.body.style.overflow=previousOverflow||''})
 
 function select(item){
  if(busy.value)return
  confirmCancel.value='';error.value=''
  if(item.status==='Pending'&&item.request){actionsFor.value=actionsFor.value===item.institute?'':item.institute;return}
- actionsFor.value='';open(item)
+ actionsFor.value='';if(item.institute===props.data.selected){closeMenu(true);return}open(item)
 }
 async function open(item){
  if(item.locked||busy.value||item.institute===props.data.selected)return
@@ -54,18 +74,29 @@ async function cancel(item){
 }
 </script>
 <template>
- <section class="teacher-workspaces" aria-label="Switch teaching workspace" @keydown.esc="!confirmCancel&&(actionsFor='')">
-  <nav aria-label="Teaching workspaces">
-   <div v-for="item in data?.choices||[]" :key="item.institute" class="workspace-choice"><button type="button" :disabled="(item.locked&&!(item.status==='Pending'&&item.request))||!!busy" :aria-expanded="item.status==='Pending'&&item.request?actionsFor===item.institute:undefined" :aria-pressed="data.selected===item.institute" :title="item.locked?`${item.title}: ${item.status==='Pending'?'Pending approval. Click to manage this request':'Membership unavailable'}`:`Open ${item.title} workspace`" @click="select(item)">
-    <span class="workspace-circle" :class="{'workspace-circle--locked':item.locked}"><img v-if="item.image" :src="item.image" alt=""/><UserRound v-else-if="item.kind==='Personal'" :size="21"/><Building2 v-else :size="21"/><span v-if="item.locked" class="workspace-mark"><LockKeyhole :size="12"/></span><span v-else-if="data.selected===item.institute" class="workspace-mark"><Check :size="12"/></span></span>
-    <span class="workspace-label">{{item.title}}<small v-if="item.locked">{{item.status==='Pending'?'Pending approval':'Unavailable'}}</small><small v-else-if="busy===item.institute">Opening…</small><small v-else-if="data.selected===item.institute" class="workspace-current">Current workspace</small></span>
-   </button>
-   <template v-if="item.status==='Pending'&&item.request">
-    <button v-if="actionsFor===item.institute" type="button" class="request-bin" :aria-label="`Cancel request to ${item.title}`" title="Cancel request" :disabled="!!busy" @click="confirmCancel=item.institute;error='';notice=''"><Trash2 :size="15" aria-hidden="true"/></button>
-   </template></div>
-   <button ref="joinButton" type="button" :disabled="locked||!!busy" @click="emit('join')" title="Find an institute to join"><span class="workspace-circle workspace-circle--add"><Plus :size="17" aria-hidden="true"/></span><span class="workspace-label">Join institute</span></button>
-  </nav>
-  <p v-if="error&&!confirmCancel" role="alert">{{error}}</p>
+ <section class="teacher-workspaces" aria-label="Switch teaching workspace">
+  <details ref="dropdown" class="workspace-dropdown" @toggle="toggled" @keydown.esc="escapeMenu" @focusout="focusOutside">
+   <summary ref="trigger" class="workspace-trigger" :aria-expanded="expanded" aria-controls="teaching-workspace-menu" :aria-label="`Switch workspace: ${current?.title||'Choose workspace'}`" @keydown.down.prevent="focusMenu">
+    <span class="workspace-circle workspace-circle--current"><img v-if="logo(current)" :src="logo(current)" alt="" @error="failedImages[current.institute]=true"/><UserRound v-else-if="current?.kind==='Personal'" :size="20" aria-hidden="true"/><Building2 v-else :size="20" aria-hidden="true"/></span>
+    <span class="workspace-trigger-label"><strong>{{current?.title||'Choose workspace'}}</strong><small>Current workspace</small></span>
+    <ChevronDown :size="15" class="workspace-chevron" aria-hidden="true"/>
+   </summary>
+   <div class="workspace-popover" id="teaching-workspace-menu">
+    <div class="workspace-menu-heading"><strong>Switch workspace</strong><span>Choose where you teach</span></div>
+    <nav ref="menu" aria-label="Teaching workspaces" @keydown="moveFocus">
+     <div v-for="item in data?.choices||[]" :key="item.institute" class="workspace-choice" :class="{'is-current':data.selected===item.institute}">
+      <button type="button" class="workspace-option" :disabled="(item.locked&&!(item.status==='Pending'&&item.request))||!!busy" :aria-expanded="item.status==='Pending'&&item.request?actionsFor===item.institute:undefined" :aria-pressed="data.selected===item.institute" @click="select(item)">
+       <span class="workspace-circle" :class="{'workspace-circle--locked':item.locked}"><img v-if="logo(item)" :src="logo(item)" alt="" @error="failedImages[item.institute]=true"/><UserRound v-else-if="item.kind==='Personal'" :size="20" aria-hidden="true"/><Building2 v-else :size="20" aria-hidden="true"/><span v-if="item.locked" class="workspace-mark"><LockKeyhole :size="11" aria-hidden="true"/></span></span>
+       <span class="workspace-label">{{item.title}}<small v-if="item.locked">{{item.status==='Pending'?'Pending approval':'Unavailable'}}</small><small v-else-if="busy===item.institute">Opening…</small><small v-else-if="data.selected===item.institute" class="workspace-current">Current workspace</small><small v-else>Open workspace</small></span>
+       <Check v-if="data.selected===item.institute" :size="18" class="workspace-selected" aria-hidden="true"/>
+      </button>
+      <button v-if="item.status==='Pending'&&item.request&&actionsFor===item.institute" type="button" class="request-bin" :aria-label="`Cancel request to ${item.title}`" title="Cancel request" :disabled="!!busy" @click="confirmCancel=item.institute;error='';notice=''"><Trash2 :size="16" aria-hidden="true"/></button>
+     </div>
+     <button ref="joinButton" class="workspace-join" type="button" :disabled="locked||!!busy" @click="join"><span class="workspace-circle workspace-circle--add"><Plus :size="18" aria-hidden="true"/></span><span>Join institute</span></button>
+    </nav>
+    <p v-if="error&&!confirmCancel" class="workspace-error" role="alert">{{error}}</p>
+   </div>
+  </details>
   <dialog ref="noticeDialog" class="request-confirm-dialog request-success-dialog" aria-labelledby="request-notice-title" aria-describedby="request-notice-description" @cancel.prevent="dismissNotice">
    <template v-if="notice">
     <button type="button" class="request-confirm-close" aria-label="Close notification popup" @click="dismissNotice"><X :size="20"/></button>
@@ -91,9 +122,44 @@ async function cancel(item){
  </section>
 </template>
 <style scoped>
-.teacher-workspaces{padding:12px 28px 14px;border-bottom:1px solid var(--student-border,#e6dff0);background:var(--student-card,#fff)}.teacher-workspaces nav{display:flex;flex-direction:row;justify-content:flex-end;align-items:flex-start;gap:12px;flex-wrap:wrap}.teacher-workspaces nav button{width:auto;opacity:1}.teacher-workspaces nav button:disabled{opacity:1}button{border:0;background:none;color:var(--student-ink,#49335c);font:inherit;display:flex;flex-direction:column;align-items:center;gap:6px;min-width:76px;max-width:140px;padding:4px 8px;cursor:pointer;border-radius:10px}.workspace-circle{position:relative;display:grid;place-items:center;width:42px;height:42px;border:1px solid #cdbbdf;border-radius:50%;background:#f8f4fc;color:#623894}.workspace-circle img{width:100%;height:100%;object-fit:cover;border-radius:50%}.workspace-label{font-size:12px;line-height:1.4;text-align:center;overflow-wrap:anywhere}.workspace-label small{display:block;font-size:10px;color:#786187;margin-top:2px}button[aria-pressed=true] .workspace-circle{background:#217448;color:white;border-color:#217448}button[aria-pressed=true] .workspace-label{font-weight:700;color:#21603f}button[aria-pressed=true] .workspace-mark{background:#217448}button[aria-pressed=true] .workspace-current{color:#21603f}.workspace-mark{position:absolute;bottom:-2px;right:-3px;border:2px solid white;background:#56288d;color:white;border-radius:50%;width:20px;height:20px;display:grid;place-items:center}.workspace-circle--locked{background:#f1eff3;color:#807487;border-color:#d7cddf}.workspace-circle--locked .workspace-mark{background:#776780}.workspace-circle--add{width:32px;height:32px;margin:5px;border-style:dashed;background:transparent}button:disabled{cursor:default}button:disabled .workspace-label{color:#766781}button:not(:disabled):hover{background:#f4eef9}button:focus-visible{outline:2px solid #7853a4;outline-offset:2px}p{font-size:13px;color:#a51d32;text-align:right;margin:10px 0 0}@media(max-width:600px){.teacher-workspaces{padding:10px 12px}nav{gap:6px}button{min-width:68px;max-width:105px;padding:4px}.workspace-label{font-size:11px}}
-.workspace-choice{position:relative;display:flex;flex-direction:column;align-items:center;max-width:140px}.workspace-choice:has(button[aria-pressed=true]){background:#f0f8f2;border-radius:12px;padding-bottom:5px}@media(max-width:600px){.workspace-choice{max-width:105px}}
-.teacher-workspaces nav .request-bin{position:absolute;top:-5px;right:-5px;display:grid;place-items:center;width:32px;height:32px;min-width:32px;max-width:32px;padding:0;border:1px solid #f3c5ca;border-radius:50%;background:#fff1f2;color:#ba293e;z-index:1}.teacher-workspaces nav .request-bin:hover{background:#ffe0e5;color:#9d1930}.teacher-workspaces nav .request-bin:focus-visible{outline:2px solid #ba293e;outline-offset:2px}@media(pointer:coarse){.teacher-workspaces nav .request-bin{width:44px;height:44px;max-width:44px;top:-9px;right:-7px}}
+.teacher-workspaces{position:relative;min-width:0;color:var(--student-ink,#30243d)}
+.workspace-dropdown{position:relative}
+.workspace-trigger{display:flex;align-items:center;gap:10px;min-height:52px;padding:6px 10px;border:1px solid #d4e8da;border-radius:10px;background:#f0f8f2;cursor:pointer;list-style:none;color:#21603f;max-width:228px}
+.workspace-trigger::-webkit-details-marker{display:none}
+.workspace-trigger:hover,.workspace-dropdown[open] .workspace-trigger{background:#e5f2e9;border-color:#accfb9}
+.workspace-trigger-label{display:flex;flex-direction:column;gap:3px;min-width:0;text-align:left}
+.workspace-trigger-label strong{font-size:12px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.workspace-trigger-label small{font-size:10px;white-space:nowrap;color:#38694a}
+.workspace-chevron{flex-shrink:0;margin-left:4px;transition:transform .15s ease-out}
+.workspace-dropdown[open] .workspace-chevron{transform:rotate(180deg)}
+.workspace-popover{position:absolute;top:calc(100% + 10px);right:0;z-index:45;width:336px;max-width:calc(100vw - 32px);box-sizing:border-box;border-radius:14px;background:var(--student-card,#fff);box-shadow:0 12px 40px #25173629;padding:8px;text-align:left}
+.workspace-menu-heading{display:flex;flex-direction:column;gap:4px;padding:12px 12px 16px}
+.workspace-menu-heading strong{font-size:14px;color:#30243d}.workspace-menu-heading span{font-size:12px;color:#70617b}
+.teacher-workspaces nav{display:flex;flex-direction:column;gap:4px;max-height:min(400px,60dvh);overflow:auto;overscroll-behavior:contain;scrollbar-color:#c9bad9 transparent;scrollbar-width:thin}
+button{font:inherit;cursor:pointer;border:0;background:none;color:inherit;border-radius:9px}
+.workspace-choice{display:flex;align-items:center;border-radius:10px;position:relative}
+.workspace-option{display:flex;flex:1;align-items:center;gap:12px;text-align:left;padding:12px;min-height:64px;min-width:0;width:100%}
+.workspace-circle{position:relative;flex-shrink:0;display:grid;place-items:center;width:36px;height:36px;border:1px solid #d7cddf;border-radius:50%;background:#f4eff9;color:#623894}
+.workspace-circle img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+.workspace-circle--current,.is-current .workspace-circle{background:#217448;border-color:#217448;color:white}
+.workspace-label{flex:1;min-width:0;font-size:13px;line-height:1.4;overflow-wrap:anywhere;color:#392c46}
+.workspace-label small{display:block;font-size:11px;line-height:1.4;color:#74647e;margin-top:3px}
+.workspace-choice.is-current{background:#f0f8f2}.is-current .workspace-label,.is-current .workspace-label small,.workspace-selected{color:#21603f}.is-current .workspace-label{font-weight:650}
+.workspace-selected{flex-shrink:0}
+.workspace-mark{position:absolute;bottom:-3px;right:-4px;border:2px solid white;background:#776780;color:white;border-radius:50%;width:17px;height:17px;display:grid;place-items:center}
+.workspace-circle--locked{background:#f1eff3;color:#807487}
+.workspace-join{display:flex;align-items:center;gap:12px;min-height:56px;padding:12px;margin-top:4px;border-top:1px solid #e6dff0;border-radius:0;font-size:13px;text-align:left;color:#592b91}
+.workspace-circle--add{width:30px;height:30px;margin:3px;background:transparent;border-style:dashed}
+.workspace-option:not(:disabled):hover,.workspace-join:not(:disabled):hover{background:#f4eff9}
+button:disabled{cursor:default;opacity:.6}
+button:focus-visible,summary:focus-visible{outline:2px solid #7853a4;outline-offset:2px}
+.workspace-choice .request-bin{display:grid;place-items:center;width:40px;height:40px;flex-shrink:0;padding:0;margin-right:8px;background:#fff1f2;color:#ba293e;border:1px solid #f3c5ca}
+.workspace-choice .request-bin:hover{background:#ffe0e5}
+.workspace-error{font-size:12px;line-height:1.5;color:#a51d32;margin:8px;padding:8px;background:#fff1f2;border-radius:8px}
+@media(min-width:701px) and (max-width:1100px){.workspace-popover{left:0;right:auto}}
+@media(max-width:700px){.workspace-trigger{max-width:180px;min-height:46px;gap:8px;padding:5px 8px}.workspace-trigger-label small{display:none}.workspace-trigger .workspace-circle{width:30px;height:30px}.workspace-popover{position:fixed;left:16px;right:16px;top:auto;width:auto;margin-top:8px}.workspace-choice .request-bin{min-width:44px;min-height:44px}}
+@media(max-width:430px){.workspace-trigger{max-width:150px}.workspace-trigger-label strong{max-width:80px;font-size:11px}}
+@media(prefers-reduced-motion:reduce){.workspace-chevron{transition:none}}
 .request-confirm-dialog{position:fixed;inset:0;margin:auto;width:min(460px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;box-sizing:border-box;border:0;border-radius:16px;padding:32px;background:#fff;color:#30243d;box-shadow:0 24px 70px #25173638;text-align:left}.request-confirm-dialog::backdrop{background:#20132a80}.request-confirm-dialog:not([open]){display:none}.request-confirm-dialog .request-confirm-close{position:absolute;right:14px;top:14px;display:grid;place-items:center;width:40px;height:40px;min-width:40px;padding:0;color:#675574}.request-confirm-icon{display:grid;place-items:center;width:48px;height:48px;border-radius:12px;background:#fff0f2;color:#b52d43;margin-bottom:20px}.request-confirm-dialog h2{font-size:24px;line-height:1.25;letter-spacing:-.025em;margin:0 24px 14px 0;color:#30243d}.request-confirm-dialog p{font-size:14px;line-height:1.7;text-align:left;margin:0;color:#65566e;overflow-wrap:anywhere}.request-confirm-dialog strong{color:#30243d;font-weight:650}.request-confirm-actions{display:flex;gap:12px;margin-top:28px}.request-confirm-actions button{flex:1;min-width:0;max-width:none;min-height:46px;padding:12px 16px;font-size:14px;font-weight:650;display:flex;justify-content:center;align-items:center;border-radius:9px}.request-confirm-actions .request-keep{background:#f5f0fa;color:#56288d;border:1px solid #d8c9e7}.request-confirm-actions .request-remove{background:#b52d43;color:white;border:1px solid #b52d43}.request-confirm-actions .request-remove:hover{background:#982237}.request-confirm-actions .request-keep:hover{background:#eae0f4}.request-confirm-dialog button:disabled{opacity:.6;cursor:wait}.request-confirm-dialog .request-confirm-error{background:#fff0f2;color:#a02137;padding:12px;margin-top:16px;border-radius:8px}@media(max-width:480px){.request-confirm-dialog{padding:26px 22px}.request-confirm-dialog h2{font-size:22px}.request-confirm-actions{flex-direction:column-reverse;gap:10px}.request-confirm-actions button{width:100%}}
 .request-success-dialog{width:min(420px,calc(100vw - 32px));text-align:center}.request-success-dialog .request-success-icon{margin:0 auto 20px;background:#eaf5ef;color:#217448;border-radius:50%;width:56px;height:56px}.request-success-dialog h2{margin:0 18px 12px;text-align:center}.request-success-dialog p{text-align:center}.request-confirm-actions .request-notice-ok{background:#592b91;color:#fff;min-height:46px}.request-confirm-actions .request-notice-ok:hover{background:#482172}
 </style>

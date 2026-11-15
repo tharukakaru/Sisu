@@ -21,7 +21,7 @@ function harness({request,loadCheckoutLibrary,now=Date.now}) {
   MutationObserver:class{constructor(fn){sync=fn}observe(){}disconnect(){}},
   ResizeObserver:class{observe(){}disconnect(){}},
   Date:class extends Date{static now(){return now()}},request,loadCheckoutLibrary,paymentMessage,reusableCheckout})
- vm.runInContext(source+';globalThis.ui={pay,pause,verify,busy,preparing,retryLoading,retained,message,formOpen,observeScreen,needsReview,buttonLabel,awaitingVerification};',context)
+ vm.runInContext(source+';globalThis.ui={pay,pause,verify,busy,preparing,retryLoading,retained,message,formOpen,observeScreen,needsReview,buttonLabel,awaitingVerification,verificationPaused,verificationIssue,resumeVerification,paid};',context)
  context.ui.observeScreen()
  return {ui:context.ui,props,timers,dispose:()=>dispose(),reloads:()=>reloads,resize:(button,screen)=>{selectionHeight=button;formHeight=screen;sync()}}
 }
@@ -166,4 +166,35 @@ test('verified or disposed checkout cancels further verification',async()=>{
  await ui.pay();await ui.verify();assert.equal(timers.size,1)
  status='succeeded';await ui.verify();assert.equal(timers.size,0)
  dispose();assert.equal(timers.size,0)
+})
+
+
+test('transaction-backed pending payment polls without a completed browser event',async()=>{
+ const {ui,timers}=harness({request:async()=>({name:'submitted',status:'pending',transaction_id:'123'})})
+ await ui.pay();assert.equal(ui.awaitingVerification.value,true);assert.equal(timers.size,1)
+})
+
+test('verification network failure retries automatically without opening checkout',async()=>{
+ const calls=[]
+ const {ui,timers}=harness({request:async(service,method)=>{
+  calls.push(method)
+  if(method==='reconcile')throw Error('offline')
+  return {name:'submitted',status:'pending',browser_event:'completed'}
+ }})
+ await ui.pay();await ui.verify()
+ assert.equal(ui.verificationIssue.value,true);assert.equal(timers.size,1)
+ assert.equal(ui.awaitingVerification.value,true);assert.deepEqual(calls,['start','reconcile'])
+})
+
+test('exhausted verification stops the spinner and resumes status reads only',async()=>{
+ const calls=[];let status='pending'
+ const {ui,timers}=harness({request:async(service,method)=>{calls.push(method);return {name:'submitted',status,browser_event:'completed'}}})
+ await ui.pay()
+ for(let i=0;i<12;i++){
+  const [id,timer]=[...timers][0];timers.delete(id);timer.fn();await new Promise(setImmediate)
+ }
+ assert.equal(ui.verificationPaused.value,true);assert.equal(timers.size,0)
+ status='succeeded';await ui.resumeVerification()
+ assert.equal(ui.paid.value,true);assert.equal(ui.verificationPaused.value,false)
+ assert.equal(calls.filter(x=>x==='start').length,1);assert.equal(timers.size,0)
 })
