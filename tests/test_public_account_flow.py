@@ -14,7 +14,8 @@ class PublicAccountFlowTests(TestCase):
         f.session.data={};self.assertFalse(predicate('student'))
     def test_confirmation_only_enqueues_after_commit(self):
         doc=Mock();f=NS(local=NS(site='sisuacademylk.com'),db=NS(exists=Mock(return_value=False)),get_doc=Mock(return_value=doc),enqueue=Mock())
-        queue=function('account_confirmations','queue',dict(frappe=f,hashlib=hashlib,escape=escape))
+        local_demo=function('account_confirmations','local_demo',dict(frappe=f))
+        queue=function('account_confirmations','queue',dict(frappe=f,hashlib=hashlib,escape=escape,local_demo=local_demo))
         queue('student','registration:ST-001','Registered','Saved')
         doc.insert.assert_called_once()
         self.assertTrue(f.enqueue.call_args.kwargs['enqueue_after_commit'])

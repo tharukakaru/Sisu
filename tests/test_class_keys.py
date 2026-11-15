@@ -13,14 +13,14 @@ class Keys(unittest.TestCase):
   self.key='1793664000-ABCDEF1234567890'
   self.clock=patch('time.time',return_value=1793664000);self.clock.start();self.addCleanup(self.clock.stop)
   self.access=NS(name='G',student='Student',institute='Inst',classroom='Class',status='Awaiting key',invoice='I',ends_at=self.now+timedelta(days=1),enrollment_key_hash=hashlib.sha256(self.key.encode()).hexdigest())
-  self.saved=MagicMock();self.queued=MagicMock()
+  self.saved=MagicMock();self.queued=MagicMock();self.notified=MagicMock()
   self.f=NS(session=NS(user='student'),db=MagicMock(),get_all=MagicMock(return_value=['G']),whitelist=lambda **kw:lambda fn:fn)
   self.f.cache=MagicMock();self.f.cache.get_value.return_value=None
   self.f.throw=lambda msg,*args:(_ for _ in ()).throw(ValueError(msg))
   self.f.db.exists.return_value=True
   self.modules={'frappe':self.f,'frappe.utils':NS(now_datetime=lambda:self.now,get_datetime=lambda v:v),
     'institute_lms.api':NS(identity=lambda:(NS(name='Inst'),NS(name='Student',role='Student')),require_role=lambda *a:None,scoped=lambda *a:NS(name='Class',title='Math')),
-    'institute_lms.commercial':NS(locked=lambda *a:self.access,save=self.saved),
+    'institute_lms.commercial':NS(locked=lambda *a:self.access,save=self.saved,notify_people=self.notified),
     'institute_lms.registration':NS(limit=lambda *a:None),
     'institute_lms.account_confirmations':NS(queue=self.queued)}
   self.p=patch.dict(sys.modules,self.modules);self.p.start();self.addCleanup(self.p.stop)
@@ -30,7 +30,10 @@ class Keys(unittest.TestCase):
   self.assertEqual(self.f.get_all.call_args.kwargs['filters']['student'],'Student')
   self.assertEqual(self.access.status,'Active');self.assertIsNone(self.access.enrollment_key_hash)
   self.queued.assert_called_once()
+  self.notified.assert_called_once()
+  self.assertEqual(self.notified.call_args.args[1],'enrollment.completed')
   with self.assertRaises(ValueError):self.m.redeem('Class',self.key)
+  self.notified.assert_called_once()
  def test_another_students_key_is_not_found(self):
   self.f.get_all.return_value=[]
   with self.assertRaises(ValueError):self.m.redeem('Class',self.key)

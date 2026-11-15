@@ -107,8 +107,8 @@ def state(a):
         get_datetime(a.paid_until) if a.paid_until else None, not a.enabled)
     return dict(state=label, available=allowed)
 
-def policy():
-    a = account()
+def policy(inst=None, member=None):
+    a = account() if inst is None and member is None else account(inst, member)
     if a.role=='Teacher' and frappe.conf.get('il_institute_teacher_coverage')==1 and not state(a)['available']:
         from .institute_coverage import for_account
         coverage=for_account(a)
