@@ -48,11 +48,12 @@ test('teacher sign-in routes preserve access gates, institute actions and signup
   globalThis.sessionStorage={getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)}
   globalThis.location={hash:'',search:''}
   globalThis.window={history:{length:1}}
-  let session={authenticated:false},available=true,billingError=false,existingGoogle=true,holdGoogle=false,finishGoogle,holdBilling=false,finishBilling,app
+  let unified=false,session={authenticated:false},available=true,billingError=false,existingGoogle=true,holdGoogle=false,finishGoogle,holdBilling=false,finishBilling,app
   globalThis.__teacherFlowRequest=async(...args)=>{
     calls.push(args)
     if(args[0]==='portal_session')return session
-    if(args[0]==='portal_policy')return {self_signup_enabled:true,google_available:true}
+    if(args[0]==='portal_policy')return {self_signup_enabled:true,google_available:true,unified_teacher_signup:unified}
+    if(args[0]==='teacher_workspace'){session={...session,role:'Teacher',member:{role:'Teacher'}};return {selected:'personal'}}
     if(args[0]==='registration'&&args[1]==='self_google_details'){if(holdGoogle)return new Promise(resolve=>finishGoogle=resolve);return {account_exists:existingGoogle}}
     if(args[0]==='account_billing'){if(holdBilling)return new Promise(resolve=>finishBilling=resolve);if(billingError)throw Error('Unable to check billing. Try again.');return {account:{workspace_available:available}}}
     throw Error('Unexpected API call '+args[0])
@@ -108,6 +109,22 @@ test('teacher sign-in routes preserve access gates, institute actions and signup
       assert.ok(marker(root,'App'));assert.equal(button(root,'Join your registered institute'),undefined)
       app.unmount();app=null
     }
+    for(const kind of ['Teacher','Institute']){
+      values.clear();session={authenticated:true,user:'provider@example.invalid',role:'Campus',member:null,onboarding_kind:kind,shared_campus:true,teaching_path:'individual',provider_onboarding_required:true}
+      const root={children:[]};app=renderer.createApp(Portal);const vm=app.mount(root);await flush()
+      assert.ok(marker(root,'ProviderFirstLogin'))
+      session={...session,provider_onboarding_required:false};await vm.$.setupState.connect();await flush()
+      assert.ok(marker(root,'ProviderOnboardingStatus'),'A saved provider profile must not loop back to profile completion')
+      assert.equal(marker(root,'MobileVerification'),undefined)
+      assert.equal(marker(root,'ProfileEditor'),undefined)
+      assert.equal(marker(root,'App'),undefined,'Saving a profile must not grant workspace access')
+      if(kind==='Teacher'){
+        session={...session,teaching_path:'institute'};await vm.$.setupState.connect();await flush()
+        assert.equal(marker(root,'ProviderOnboardingStatus'),undefined,'Institute teachers retain their membership request flow')
+        assert.ok(marker(root,'MobileVerification'))
+      }
+      app.unmount();app=null
+    }
     values.clear();session={authenticated:true,user:'institute@example.invalid',role:'Campus',member:null,onboarding_kind:'Institute',shared_campus:true}
     const onboardingRoot={children:[]};app=renderer.createApp(Portal);app.mount(onboardingRoot);await flush()
     assert.ok(marker(onboardingRoot,'MobileVerification'))
@@ -133,6 +150,28 @@ test('teacher sign-in routes preserve access gates, institute actions and signup
     billingError=false;available=true;button(root,'Check again').props.onClick();await flush()
     assert.ok(marker(root,'App'))
     app.unmount();app=null
+    unified=true;values.clear();session={authenticated:false}
+    const unifiedRoot={children:[]};app=renderer.createApp(Portal);let unifiedVm=app.mount(unifiedRoot);await flush()
+    unifiedVm.$.setupState.chooseRole('Teacher');unifiedVm.$.setupState.openSignup();await nextTick()
+    assert.ok(marker(unifiedRoot,'RegistrationFlow'),'One Teacher choice opens signup directly')
+    assert.equal(marker(unifiedRoot,'ProviderAccountChoice'),undefined)
+    assert.equal(marker(unifiedRoot,'RegistrationFlow').props['initial-provider-kind'],'Individual Teacher')
+    app.unmount();app=null
+    for(const oldPath of ['individual','institute']){
+      calls.length=0;values.clear();session={authenticated:true,user:'teacher@example.invalid',role:'Campus',shared_campus:true,onboarding_kind:'Teacher',member:null,teaching_path:oldPath,provider_onboarding_required:true}
+      const target={children:[]};app=renderer.createApp(Portal);const vm=app.mount(target);await flush()
+      assert.ok(marker(target,'ProviderFirstLogin'))
+      assert.equal(calls.filter(c=>c[0]==='teacher_workspace').length,0,'Incomplete identity cannot provision')
+      session={...session,provider_onboarding_required:false};await vm.$.setupState.connect();await flush()
+      assert.ok(marker(target,'App'),'Both legacy teacher paths open the shared dashboard after verification')
+      assert.equal(calls.filter(c=>c[0]==='teacher_workspace').length,1)
+      assert.equal(button(target,'Apply to an institute'),undefined)
+      available=false;await vm.$.setupState.connect();await flush()
+      assert.ok(marker(target,'App'),'Expired unified teachers retain the shell for billing and workspace switching')
+      assert.equal(button(target,'Continue as individual teacher'),undefined)
+      available=true;app.unmount();app=null
+    }
+    unified=false
     globalThis.location.search='?verified_signup=1'
     for(const existing of [true,false]){
       holdGoogle=true;

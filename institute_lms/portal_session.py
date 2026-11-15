@@ -21,8 +21,10 @@ def current():
             admins=frappe.get_all('IL Member',filters={'user':frappe.session.user,'role':['in',['Admin','Teacher']],'active':1},pluck='institute')
             admins=sorted(set(admins))
             # An active membership is the authority; registration choices never grant access.
-            personal=frappe.db.get_value('IL Public Profile',
-                {'user':frappe.session.user,'kind':'Teacher','status':'Verified'},'workspace')
+            personal_filters={'user':frappe.session.user,'kind':'Teacher','status':'Verified'}
+            from .teacher_workspace import enabled as unified_teacher_enabled
+            if unified_teacher_enabled():personal_filters['status']=['in',['Pending','Verified']]
+            personal=frappe.db.get_value('IL Public Profile',personal_filters,'workspace')
             if admins:
                 selected=personal if personal in admins else admins[0]
                 frappe.session.data[SESSION_KEY]=selected
@@ -39,6 +41,7 @@ def current():
                 path=teaching_path(rows,frappe.session.user)
             from .onboarding_navigation import profile_pending
             return {'authenticated':True,'role':'Campus','shared_campus':True,'member':None,
+                    'provider_profile_required':profile_pending(rows) or not frappe.db.exists('IL Public Profile',{'user':frappe.session.user}),
                     'provider_onboarding_required':kind in ('Teacher','Institute') and (profile_pending(rows) or not frappe.db.exists('IL Public Profile',{'user':frappe.session.user}) or not frappe.db.exists('IL Verified Phone',{'user':frappe.session.user})),
                     'provider_workspace_pending':kind in ('Teacher','Institute') and not profile_pending(rows) and bool(frappe.db.exists('IL Public Profile',{'user':frappe.session.user})) and bool(frappe.db.exists('IL Verified Phone',{'user':frappe.session.user})),
                     'onboarding_kind':kind,'teaching_path':path,'workspace_choices_required':len(admins)>1,'user':frappe.session.user,'csrf_token':csrf}

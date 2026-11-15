@@ -35,6 +35,7 @@ def send_config(config,phone,message):
         value = response.json()
         confirmed = response.ok and isinstance(value,dict) and value.get('status') == 'success' and value.get('data') == 'Sent'
     except (requests.RequestException, ValueError) as exc:
+        log_failure(exc, locals().get('response'), config)
         try:
             if getattr(frappe.local,'site',None)=='sisuacademylk.com':
                 response_value=locals().get('response')
@@ -44,5 +45,21 @@ def send_config(config,phone,message):
             pass
         frappe.throw('SMS acceptance is uncertain; reconcile before retrying')
     if not confirmed:
+        log_failure(None, response, config)
         frappe.throw('SMS provider did not confirm acceptance')
     return {'accepted':True, 'provider':'notify.lk', 'provider_id':None}
+
+
+def log_failure(exc, response, config):
+    """Record what Notify returned (never the API key) so failures can be diagnosed."""
+    try:
+        body = str(getattr(response, 'text', '') or '')[:500].replace(str(config.get('api_key') or '~'), '***')
+        detail = {'site': getattr(frappe.local, 'site', None), 'error': type(exc).__name__ if exc else None,
+                  'error_text': str(exc)[:300].replace(str(config.get('api_key') or '~'), '***') if exc else None,
+                  'http_status': getattr(response, 'status_code', None),
+                  'content_type': getattr(response, 'headers', {}).get('content-type') if response is not None else None,
+                  'body': body}
+        frappe.cache.set_value('il_sms_last_failure', detail, expires_in_sec=86400)
+        frappe.logger('notify_sms').warning(detail)
+    except Exception:
+        pass

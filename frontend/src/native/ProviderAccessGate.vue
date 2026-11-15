@@ -1,6 +1,7 @@
 <script setup>
 import {ref,onMounted} from 'vue'
 import InstituteJoinPicker from './InstituteJoinPicker.vue'
+import TeacherInstitutes from './TeacherInstitutes.vue'
 import MobileVerification from './MobileVerification.vue'
 import {request,csrf,decode} from './client'
 import SubscriptionBilling from './SubscriptionBilling.vue'
@@ -21,14 +22,16 @@ async function verifiedPhone(value){
 const logoutError=ref(''),loggingOut=ref(false)
 async function signIn(){if(loggingOut.value)return;loggingOut.value=true;logoutError.value='';try{await decode(await fetch('/api/method/logout',{method:'POST',credentials:'same-origin',headers:{'X-Frappe-CSRF-Token':csrf()}}));window.location.assign('/login?redirect-to=/campus')}catch(e){logoutError.value=e.message;loggingOut.value=false}}
 function back(){if(billingOpen.value){billingOpen.value=false}else if(joinMode.value){joinMode.value=''}else if(individual.value){individual.value=false}else if(window.history.length>1){window.history.back()}}
-const props=defineProps({role:String,selectionOnly:Boolean,initialIndividual:Boolean,checking:Boolean,error:String});const emit=defineEmits(['changed','continue']);const panel=ref(null)
+const props=defineProps({role:String,unifiedTeacher:Boolean,selectionOnly:Boolean,initialIndividual:Boolean,checking:Boolean,error:String});const emit=defineEmits(['changed','continue']);const panel=ref(null)
 const billingOpen=ref(false)
 const individual=ref(props.initialIndividual)
 function continueIndividual(){if(props.selectionOnly)emit('continue');else individual.value=true}
 onMounted(async()=>{panel.value?.focus();if(props.selectionOnly){try{const data=await request('profiles','me',{},'GET');await verifiedPhone(data.phone_verified)}catch{}}})
 </script>
 <template>
-<main v-if="!selectionOnly" class="provider-gate"><div class="workspace-preview" inert aria-hidden="true"><header>SISU · {{role==='Teacher'?'Teacher':'Institute'}} dashboard</header><nav>Overview · Classes · Students · Assignments</nav><div class="workspace-panels"><section v-for="title in ['Your classes','Learning activity','Upcoming sessions']" :key="title"><h2>{{title}}</h2><div class="preview-line"/><div class="preview-line"/></section></div></div><section class="subscription-overlay" aria-labelledby="subscription-title"><h1 id="subscription-title">Choose a plan to open your dashboard</h1><p>Your profile is saved. Your workspace stays locked until your subscription is activated.</p><SubscriptionBilling standalone @changed="emit('changed')"/><button :disabled="checking" @click="emit('changed')">Check again</button><button class="workspace-back" :disabled="loggingOut" @click="signIn">Back to sign in</button><p v-if="logoutError" role="alert">{{logoutError}}</p><p v-if="error" role="alert">{{error}}</p></section></main>
+<main v-if="unifiedTeacher&&role==='Teacher'" class="unified-recovery"><h1>Your teacher subscription</h1><p>Your trial has ended. Choose a personal plan or open an approved institute workspace with active coverage.</p><TeacherInstitutes @navigate="billingOpen=true"/><SubscriptionBilling standalone @changed="emit('changed')"/><button class="workspace-back" :disabled="loggingOut" @click="signIn">Back to sign in</button><p v-if="logoutError" role="alert">{{logoutError}}</p></main>
+<main v-else-if="!selectionOnly" class="provider-gate"><div class="workspace-preview" inert aria-hidden="true"><header>SISU · {{role==='Teacher'?'Teacher':'Institute'}} dashboard</header><nav>Overview · Classes · Students · Assignments</nav><div class="workspace-panels"><section v-for="title in ['Your classes','Learning activity','Upcoming sessions']" :key="title"><h2>{{title}}</h2><div class="preview-line"/><div class="preview-line"/></section></div></div><section class="subscription-overlay" aria-labelledby="subscription-title"><h1 id="subscription-title">Choose a plan to open your dashboard</h1><p>Your profile is saved. Your workspace stays locked until your subscription is activated.</p><SubscriptionBilling standalone @changed="emit('changed')"/><button :disabled="checking" @click="emit('changed')">Check again</button><button class="workspace-back" :disabled="loggingOut" @click="signIn">Back to sign in</button><p v-if="logoutError" role="alert">{{logoutError}}</p><p v-if="error" role="alert">{{error}}</p></section></main>
+
 <TeacherSignupLayout v-else-if="role==='Teacher'" active class="teacher-workspace-layout">
   <main class="teacher-workspace-content">
     <section ref="panel" class="teacher-workspace-panel" tabindex="-1" aria-labelledby="teacher-workspace-title">
@@ -77,3 +80,5 @@ onMounted(async()=>{panel.value?.focus();if(props.selectionOnly){try{const data=
 @media(max-width:999px){.teacher-workspace-content{padding:0;min-height:calc(100dvh - 210px)}}
 @media(max-width:480px){.teacher-workspace-panel h1{font-size:30px;letter-spacing:-1px}.workspace-options button{font-size:13px}}
 </style>
+
+<style scoped>.unified-recovery{max-width:1100px;margin:40px auto;padding:24px}.unified-recovery>p{line-height:1.7;margin-bottom:24px}</style>

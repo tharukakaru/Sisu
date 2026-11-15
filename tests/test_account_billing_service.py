@@ -4,7 +4,7 @@ import sys
 import types
 import unittest
 from datetime import datetime, timedelta
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 class Row(dict):
     def __getattr__(self,k):return self.get(k)
@@ -32,6 +32,9 @@ class BillingService(unittest.TestCase):
         self.fake.throw=lambda msg,*args:(_ for _ in ()).throw(ValueError(msg))
         self.fake.get_doc=self.get_doc;self.fake.get_all=self.get_all
         self.fake.db=Row(get_value=self.get_value,exists=lambda doctype,filters:bool(self.get_value(doctype,filters,'name')),sql=lambda *a,**kw:[])
+        self.fake.db.savepoint=MagicMock();self.fake.db.rollback=MagicMock()
+        self.fake.DuplicateEntryError=type('DuplicateEntryError',(Exception,),{})
+        self.fake.UniqueValidationError=type('UniqueValidationError',(Exception,),{})
         self.fake.local=Row(request=Row(path='/api/method/institute_lms.api.classrooms'))
         self.fake.form_dict=Row()
         from institute_lms.plan_catalog_rules import defaults
@@ -39,6 +42,7 @@ class BillingService(unittest.TestCase):
         self.catalog.plan=lambda name:defaults()[name]
         self.gateway=types.ModuleType('institute_lms.cybersource')
         self.gateway.payment_paused=lambda:True
+        self.gateway.assert_no_active=lambda *a:None
         self.patches=[patch.dict(sys.modules,{'institute_lms.plan_catalog':self.catalog,'institute_lms.cybersource':self.gateway}),patch.object(self.b,'frappe',self.fake),patch.object(self.b,'now_datetime',lambda:self.now),patch.object(self.b,'account',lambda **kw:self.a),patch.object(self.b,'save',self.save),patch.object(self.b,'queue_document',lambda bill,kind:self.sent.append((bill.name,kind))),patch.object(self.b,'require_owner',self.check_owner),patch.object(self.b,'country_code',lambda c:c if c in ('LK','US') else self.fake.throw('invalid country'))]
         for p in self.patches:p.start()
         self.addCleanup(lambda:[p.stop() for p in reversed(self.patches)])
@@ -111,13 +115,62 @@ class BillingService(unittest.TestCase):
     def get_doc(self,doctype,name=None,**kwargs):
         return Row(doctype) if isinstance(doctype,dict) else self.rows[(doctype,name)]
     def get_all(self,doctype,filters=None,fields=None,pluck=None,**kwargs):
-        out=[r for (d,n),r in self.rows.items() if d==doctype and all(r.get(k)==v for k,v in (filters or {}).items())]
+        out=[r for (d,n),r in self.rows.items() if d==doctype and all(
+            r.get(k) in v[1] if isinstance(v,list) and v[0]=='in' else r.get(k)==v
+            for k,v in (filters or {}).items())]
         return [r.get(pluck) for r in out] if pluck else out
     def get_value(self,doctype,filters,field=None,**kwargs):
         if isinstance(filters,str):rows=[self.rows[(doctype,filters)]] if (doctype,filters) in self.rows else []
         else:rows=self.get_all(doctype,filters)
         return rows[0].get(field or 'name') if rows else None
     def make(self):return self.b.make_invoice(self.a)
+
+    def test_customer_checkout_is_draft_not_debt_and_sends_no_invoice(self):
+        result=self.b.invoice(start_paid=True)
+        bill=self.rows[(self.b.INVOICE,result['invoice'])]
+        self.assertEqual(bill.status,'Draft')
+        self.assertEqual(self.b.invoice(start_paid=True)['invoice'],bill.name)
+        self.assertEqual(self.sent,[])
+        self.assertFalse(self.a.paid_until)
+        self.b.record_verified_payment(bill.name,'gateway:merchant:draft',600,'USD','Card')
+        self.assertEqual(bill.status,'Paid')
+        self.assertEqual(self.sent,[(bill.name,'Receipt')])
+
+    def test_replacing_draft_keeps_paid_history_and_blocks_active_checkout(self):
+        bill=self.b.make_invoice(self.a,draft=True)
+        self.gateway.assert_no_active=lambda *a:(_ for _ in ()).throw(ValueError('Pending checkout'))
+        with self.assertRaisesRegex(ValueError,'Pending checkout'):self.b.void_open(self.a)
+        self.assertEqual(bill.status,'Draft')
+        self.gateway.assert_no_active=lambda *a:None
+        self.b.void_open(self.a)
+        self.assertEqual(bill.status,'Void')
+
+    def test_pending_card_checkout_prevents_invoice_replacement(self):
+        bill=self.make()
+        def pending(*args):raise ValueError('Pending checkout must be reconciled')
+        self.gateway.assert_no_active=pending
+        with self.assertRaisesRegex(ValueError,'Pending checkout'):
+            self.b.void_open(self.a)
+        self.assertEqual(bill.status,'Unpaid')
+        self.now=bill.period_end
+        with self.assertRaisesRegex(ValueError,'Pending checkout'):
+            self.make()
+        self.assertEqual(bill.status,'Unpaid')
+
+    def test_unchanged_preferences_keep_draft_and_pending_checkout(self):
+        self.a.payment_method='Card'
+        bill=self.b.make_invoice(self.a,draft=True)
+        self.gateway.assert_no_active=lambda *args:(_ for _ in ()).throw(ValueError('Pending checkout'))
+        self.b.preferences('Individual','a@test','Card')
+        self.assertEqual(bill.status,'Draft')
+        self.assertEqual(self.b.invoice(start_paid=True)['invoice'],bill.name)
+
+    def test_changed_preferences_replace_unsubmitted_draft(self):
+        self.a.payment_method='Card'
+        bill=self.b.make_invoice(self.a,draft=True)
+        self.b.preferences('Gold','a@test','Card')
+        self.assertEqual(bill.status,'Void')
+        self.assertEqual(self.b.make_invoice(self.a,draft=True).plan,'Gold')
 
     def test_daily_renews_expired_paid_account_once_without_unlocking(self):
         self.a.paid_until=self.now-timedelta(days=1)
@@ -158,17 +211,25 @@ class BillingService(unittest.TestCase):
         bill=self.make()
         result=self.b.record_verified_payment(bill.name,'gateway:merchant:abc',600,'USD','Card')
         self.assertEqual(result.status,'Paid');self.assertEqual(self.a.anchor_day,31)
+        self.assertRegex(result.receipt_number,r'^SISU-[0-9]{10}$')
+        issued=result.receipt_number
         expiry=self.a.paid_until
         self.b.record_verified_payment(bill.name,'gateway:merchant:abc',600,'USD','Card')
         self.assertEqual(self.a.paid_until,expiry);self.assertEqual(len(self.sent),1)
+        self.assertEqual(bill.receipt_number,issued)
         self.now=expiry
         next_bill=self.make()
         self.assertEqual(next_bill.period_end,datetime(2027,3,31,10))
+        self.assertIsNone(next_bill.receipt_number)
+        self.b.record_verified_payment(next_bill.name,'gateway:merchant:renewal',600,'USD','Card')
+        self.assertNotEqual(next_bill.receipt_number,issued)
+        self.assertEqual(len(self.sent),2)
     def test_wrong_payment_never_unlocks(self):
         bill=self.make()
         for cents,currency in [(599,'USD'),(900,'USD'),(600,'LKR')]:
             with self.assertRaises(ValueError):self.b.record_verified_payment(bill.name,'ref',cents,currency,'Card')
         self.assertEqual(bill.status,'Unpaid');self.assertIsNone(self.a.paid_until)
+        self.assertIsNone(bill.receipt_number);self.assertEqual(self.sent,[])
     def test_duplicate_payment_reference_rejected(self):
         bill=self.make();self.b.record_verified_payment(bill.name,'unique',600,'USD','Card')
         self.now=self.a.paid_until
@@ -236,4 +297,46 @@ class BillingService(unittest.TestCase):
         result=self.b.document_html(bill)
         self.assertNotIn('<script>',result);self.assertIn('&lt;script&gt;',result)
 
-if __name__=='__main__':unittest.main()
+    def test_billing_history_only_exposes_submitted_rejections_and_local_archive_preserves_rows(self):
+        bill=self.make()
+        for key,event,tx in [('declined','completed','1234567890'),('unsubmitted',None,None)]:
+            self.rows[('IL CyberSource Attempt',key)]=Row(name=key,kind='subscription',invoice=bill.name,
+                status='failed',browser_event=event,transaction_id=tx)
+        result=self.b.status()
+        self.assertEqual([r.name for r in result['failed_payments']],['declined'])
+        self.fake.conf.update(il_local_card_test=True,il_local_billing_hidden_invoices=[bill.name])
+        self.assertEqual(self.b.status()['invoices'],[])
+        self.assertEqual(self.b.status()['failed_payments'],[])
+        self.assertIn((self.b.INVOICE,bill.name),self.rows)
+        self.fake.conf.il_local_card_test=False
+        self.assertEqual(len(self.b.status()['invoices']),1)
+
+
+    def test_random_number_collision_retries_without_sequential_fallback(self):
+        self.rows[(self.b.INVOICE,'old')]=Row(name='old',receipt_number='SISU-0000000007')
+        bill=self.make()
+        with patch.object(self.b.secrets,'randbelow',side_effect=[7,42]) as random:
+            self.b.record_verified_payment(bill.name,'unique',600,'USD','Card')
+        self.assertEqual(bill.receipt_number,'SISU-0000000042')
+        self.assertEqual(random.call_count,2)
+
+    def test_database_number_collision_is_retried(self):
+        bill=self.make();saved=self.save
+        def racing_save(row):
+            if row is bill and row.receipt_number=='SISU-0000000007':
+                self.rows[(self.b.INVOICE,'racing')]=Row(name='racing',receipt_number=row.receipt_number)
+                raise self.fake.UniqueValidationError()
+            return saved(row)
+        with patch.object(self.b,'save',racing_save),patch.object(self.b.secrets,'randbelow',side_effect=[7,42]):
+            self.b.record_verified_payment(bill.name,'unique',600,'USD','Card')
+        self.assertEqual(bill.receipt_number,'SISU-0000000042')
+        self.fake.db.rollback.assert_called_once_with(save_point='paid_invoice_number')
+
+    def test_unpaid_or_other_account_cannot_download_invoice(self):
+        bill=self.make()
+        with patch.object(self.b,'privileged',return_value=False):
+            with self.assertRaisesRegex(ValueError,'only after payment'):
+                self.b.document(bill.name)
+            bill.subscription='another-account'
+            with self.assertRaisesRegex(ValueError,'unavailable'):
+                self.b.document(bill.name)

@@ -9,6 +9,7 @@ EVENTS=('enrollment.requested','enrollment.completed','whatsapp.payment_approved
         'quiz.available','quiz.result','payment.successful','payment.failed','subscription.renewed',
         'subscription.expiry','course.expiry','certificate.issued','lesson.refunded','lesson.payment',
         'live.changed','recording.ready','recording.published','paper.ready','ai.low','premium.offer','premium.receipt','programme.assigned')
+EVENTS=(*EVENTS,'teacher.membership.requested')
 CHANNELS=('IN_APP','EMAIL','SMS','WHATSAPP','PUSH')
 LABELS={'IN_APP':'IN_APP','EMAIL':'Email','SMS':'SMS','WHATSAPP':'WhatsApp','PUSH':'PUSH'}
 

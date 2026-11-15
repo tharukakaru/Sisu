@@ -78,6 +78,12 @@ def clear():
 @frappe.whitelist(methods=['POST'])
 def select(institute):
     member = membership(institute)
+    from institute_lms.signup_environment import unified_teacher_enabled
+    if member.role == 'Teacher' and unified_teacher_enabled(getattr(frappe,'conf',{})):
+        profile = frappe.db.get_value('IL Public Profile', {'workspace': institute, 'kind': 'Institute'}, ['name','status'], as_dict=True)
+        if profile and (profile.status != 'Verified' or not frappe.db.exists('IL Profile Relationship',
+            {'profile':profile.name,'user':frappe.session.user,'kind':'Teacher membership','status':'Active'})):
+            frappe.throw('This institute must approve your membership first.', frappe.PermissionError)
     _set_selection(member.institute)
     return {'selected': member.institute, 'role': member.role, 'reload_required': True}
 

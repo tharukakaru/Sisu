@@ -15,6 +15,8 @@ SCOPED_SUPPORT_METHODS=frozenset({
 def enabled():
     if getattr(frappe,'conf',{}).get('il_institute_teacher_coverage') != 1:
         return False
+    from .signup_environment import unified_teacher_enabled
+    if unified_teacher_enabled(frappe.conf):return True
     if getattr(getattr(frappe,'local',None),'site',None)=='hnb-checkout.localhost':
         return True
     from .signup_environment import local_signup_allowed
@@ -51,6 +53,10 @@ def sponsor(institute,user):
     return {'account':account,'profile':profile}
 
 def personal(member):
+    from .signup_environment import unified_teacher_enabled
+    if unified_teacher_enabled(getattr(frappe,'conf',{})):
+        from .api import institute
+        if frappe.db.exists('IL Public Profile',{'workspace':institute().name,'kind':'Institute'}):return False
     from .account_billing import account,state
     from .api import institute
     return state(account(institute(),member))['available']

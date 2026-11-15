@@ -61,3 +61,64 @@ class OwnerAccessTests(unittest.TestCase):
         self.f.session.user = 'Guest'
         self.assertFalse(self.m.is_owner())
         self.f.db.get_value.assert_not_called()
+
+
+class AccessLevelTests(OwnerAccessTests):
+    def test_system_administrator_can_manage(self):
+        self.f.session.user = 'Administrator'
+        self.f.db.exists.return_value = True
+        self.assertEqual(self.m.access_level(), 'Primary')
+        self.assertTrue(self.m.can_manage())
+
+    def test_full_authority_delegate_can_manage(self):
+        self.f.session.user = 'boss@example.test'
+        self.f.db.exists.return_value = True
+        self.f.db.get_value.side_effect = lambda doctype, filters, field=None: 'Administrator' if doctype == 'IL Owner Access' else 1
+        self.assertTrue(self.m.can_manage())
+        self.m.require_manager()
+
+    def test_admin_level_cannot_manage_or_promote(self):
+        self.f.session.user = 'admin@example.test'
+        self.f.db.exists.return_value = True
+        self.f.db.get_value.side_effect = lambda doctype, filters, field=None: 'Admin' if doctype == 'IL Owner Access' else 1
+        self.assertEqual(self.m.access_level(), 'Admin')
+        with self.assertRaises(PermissionError):
+            self.m.set_level('admin@example.test', 'Administrator')
+
+    def test_protected_accounts_cannot_be_removed(self):
+        self.f.session.user = 'primary@example.test'
+        with self.assertRaises(ValueError):
+            self.m.remove('primary@example.test', 'x')
+        with self.assertRaises(ValueError):
+            self.m.remove('Administrator', 'x')
+
+
+class DeleteRuleTests(OwnerAccessTests):
+    def levels(self, me_level, target):
+        def get_value(doctype, filters, field=None):
+            if doctype == 'IL Owner Access':
+                return me_level if filters.get('user') == self.f.session.user else target
+            return 1
+        self.f.db.exists.return_value = True
+        self.f.db.get_value.side_effect = get_value
+
+    def test_primary_can_delete_and_demote_administrators(self):
+        self.levels(None, 'Administrator')
+        p = self.m.permissions_for('boss@example.test')
+        self.assertEqual(p, {'can_remove': True, 'can_promote': False, 'can_demote': True})
+
+    def test_full_authority_can_delete_and_promote_admins_only(self):
+        self.f.session.user = 'boss@example.test'
+        self.levels('Administrator', 'Admin')
+        self.assertEqual(self.m.permissions_for('a@example.test'), {'can_remove': True, 'can_promote': True, 'can_demote': False})
+        self.levels('Administrator', 'Administrator')
+        self.assertEqual(self.m.permissions_for('peer@example.test'), {'can_remove': False, 'can_promote': False, 'can_demote': False})
+        with self.assertRaises(PermissionError):
+            self.m.remove('peer@example.test', 'x')
+        with self.assertRaises(PermissionError):
+            self.m.set_level('peer@example.test', 'Admin')
+
+    def test_nobody_acts_on_self_or_protected(self):
+        self.levels(None, 'Admin')
+        for target in ('primary@example.test', 'Administrator'):
+            self.assertFalse(any(self.m.permissions_for(target).values()))

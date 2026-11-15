@@ -164,6 +164,8 @@ def bootstrap():
     institute_profile = frappe.db.get_value("IL Public Profile",
         {"workspace": inst.name, "kind": "Institute"}, "name")
     from .campus_context import enabled as shared_campus
+    from .signup_environment import unified_teacher_enabled
+    member['unified_teacher'] = bool(member.get('role') == 'Teacher' and unified_teacher_enabled(getattr(frappe,'conf',{})))
     member["institute_teacher"] = bool(member.get("role") == "Teacher" and institute_profile and
         (shared_campus() or frappe.db.exists("IL Profile Relationship", {
             "profile": institute_profile, "user": frappe.session.user,
@@ -266,6 +268,11 @@ def create_internal_classroom(data: dict | str):
 def _save_classroom(data, internal=False):
     inst, member = identity()
     require_role(member, "Teacher", "Admin")
+    from .signup_environment import unified_teacher_enabled
+    if member.role == 'Teacher' and unified_teacher_enabled(getattr(frappe,'conf',{})) and frappe.db.exists('IL Public Profile',{'workspace':inst.name,'kind':'Institute'}):
+        # Assigned institute classrooms are edited through their existing permission checks.
+        incoming = payload(data)
+        if not incoming.get('name'):frappe.throw('Switch to Personal to create your own class. Your institute assigns institute classes.',frappe.PermissionError)
     data = payload(data)
     if internal:
         from .internal_classrooms import validate_request

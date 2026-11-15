@@ -5,17 +5,18 @@ import MobileVerification from './MobileVerification.vue'
 import ProviderProfileSetup from './ProviderProfileSetup.vue'
 import InstituteJoinPicker from './InstituteJoinPicker.vue'
 import {csrf,decode,request} from './client'
-const props=defineProps({session:Object})
-const emit=defineEmits(['continue'])
+const props=defineProps({session:Object,unifiedTeacher:Boolean})
+const emit=defineEmits(['continue','completed'])
 const confirmation=ref(null),showInstitutes=ref(false)
 function chooseInstitutes(){confirmation.value?.close();showInstitutes.value=true}
+function verifiedPhone(value){verified.value=value;if(value&&props.unifiedTeacher&&props.session.onboarding_kind==='Teacher'&&props.session.provider_profile_required===false)emit('completed')}
 async function completed(){saved.value=true;await nextTick();confirmation.value?.showModal()}
 const verified=ref(!!props.session.provider_workspace_pending),saved=ref(!!props.session.provider_workspace_pending),busy=ref(false),error=ref('')
-onMounted(async()=>{if(saved.value){if(props.session.teaching_path==='institute')showInstitutes.value=true;else await dashboard()}})
+onMounted(async()=>{if(saved.value){if(!props.unifiedTeacher&&props.session.teaching_path==='institute')showInstitutes.value=true;else await dashboard()}})
 async function dashboard(){
  if(busy.value)return
  busy.value=true;error.value=''
- try{await request('provider_onboarding','continue_to_workspace',{});emit('continue')}catch(e){error.value=e.message}finally{busy.value=false}
+ try{if(props.unifiedTeacher&&props.session.onboarding_kind==='Teacher'){await request('teacher_workspace','open_workspace',{});emit('completed')}else{await request('provider_onboarding','continue_to_workspace',{});emit('continue')}}catch(e){error.value=e.message}finally{busy.value=false}
 }
 async function login(){
  if(!verified.value||!saved.value||busy.value)return
@@ -25,11 +26,11 @@ async function login(){
 }
 </script>
 <template><main class="first-login"><BrandLogo/><h1>Let’s make this space yours.</h1><p>Complete these steps once to set up your account.</p>
-<MobileVerification v-if="!verified" onboarding hide-heading @verified="verified=$event"/>
-<ProviderProfileSetup v-if="verified&&!showInstitutes&&!session.provider_workspace_pending" :member="{user:session.user,full_name:session.user,role:session.onboarding_kind==='Institute'?'Admin':'Teacher'}" @completed="completed"/>
+<MobileVerification v-if="!verified" onboarding hide-heading @verified="verifiedPhone"/>
+<ProviderProfileSetup v-if="verified&&!showInstitutes&&!session.provider_workspace_pending" :unified-teacher="unifiedTeacher&&session.onboarding_kind==='Teacher'" :member="{user:session.user,full_name:session.user,role:session.onboarding_kind==='Institute'?'Admin':'Teacher'}" @completed="completed"/>
 <dialog ref="confirmation" class="saved-dialog" aria-labelledby="saved-title" @cancel.prevent>
 <h2 id="saved-title">Profile details saved successfully</h2><p>Your information is saved securely.</p>
-<button v-if="session.teaching_path==='institute'" class="continue" @click="chooseInstitutes">Choose your institute</button>
+<button v-if="!unifiedTeacher&&session.teaching_path==='institute'" class="continue" @click="chooseInstitutes">Choose your institute</button>
 <button v-else class="continue" :disabled="busy" @click="dashboard">{{busy?'Opening dashboard…':'Continue to dashboard'}}</button>
 <button class="secondary" :disabled="busy" @click="login">Back to sign in</button><p v-if="error" role="alert">{{error}}</p></dialog>
 <InstituteJoinPicker v-if="verified&&saved&&showInstitutes&&session.teaching_path==='institute'" purpose="New application" onboarding/>

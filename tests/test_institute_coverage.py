@@ -31,6 +31,12 @@ class InstituteCoverage(unittest.TestCase):
             self.assertIsNone(self.m.sponsor('school','teacher'))
     def test_production_disabled(self):
         self.f.local.site='production';self.assertIsNone(self.m.sponsor('school','teacher'))
+    def test_unified_coverage_requires_all_explicit_flags_and_excludes_control_plane(self):
+        self.f.local.site='sisuacademylk.com'
+        self.f.conf.update(il_unified_teacher_signup=1,il_public_signup_enabled=1,il_shared_campus_enabled=1)
+        self.assertTrue(self.m.enabled())
+        self.f.conf['il_control_plane']=1
+        self.assertFalse(self.m.enabled())
     def test_no_independent_or_generic_api_bypass(self):
         for method in ['institute_lms.api.create_classroom','frappe.client.get_list','institute_lms.teaching.membership','institute_lms.commercial.metrics','institute_lms.api.invoices']:
             self.assertFalse(self.m.request_allowed(method,'school','teacher'))

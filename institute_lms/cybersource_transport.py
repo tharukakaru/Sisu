@@ -1,12 +1,26 @@
 """Fixed-host CyberSource REST transport. No redirects or credential logging."""
 import json
 import re
+import time
+from threading import Lock
 from pathlib import Path
 import requests
 from .cybersource_contract import host_for, request_jwt, verify_session
 
+# Provider public keys are public, identified by environment + key ID. Keep a
+# small, short-lived process cache; capture contexts and credentials never enter it.
+_public_keys = {}
+_public_keys_lock = Lock()
+
 
 class ProviderUnavailable(Exception):
+    def __init__(self, message='CyberSource unavailable', reason_code='provider_unavailable'):
+        super().__init__(message)
+        self.reason_code = reason_code
+
+
+class SessionRejected(ProviderUnavailable):
+    """A definitive validation rejection before a checkout session exists."""
     pass
 
 
@@ -38,31 +52,57 @@ def request(config, method, path, data=None, token=False):
         with requests.Session() as session:
             session.trust_env = False
             response = session.request(method, 'https://' + host + path, data=body or None,
-                headers=auth_headers, timeout=(5, 25), allow_redirects=False)
+                headers=auth_headers, timeout=(15, 25), allow_redirects=False)
+            if path == '/uc/v1/sessions' and response.status_code == 400 and len(response.content) <= 512000:
+                error = response.json()
+                if isinstance(error, dict) and error.get('code') == 'UNIFIEDPAYMENTS_VALIDATION_FIELDS':
+                    raise SessionRejected('Checkout configuration was rejected; no payment session was opened')
             if not 200 <= response.status_code < 300 or len(response.content) > 512000:
-                raise ProviderUnavailable('CyberSource request could not be confirmed')
+                raise ProviderUnavailable('CyberSource request could not be confirmed',
+                                          'http_' + str(response.status_code))
             if token:
                 value = response.text.strip()
                 if value.startswith('"'): value = json.loads(value)
-                claims = verify_session(value, lambda kid: public_key(kid, host=host))
+                try:
+                    claims = verify_session(value, lambda kid: public_key(kid, host=host))
+                except InvalidSignature:
+                    # Handle a provider key rotation without weakening signature
+                    # checks or creating another checkout session.
+                    claims = verify_session(value, lambda kid: public_key(kid, host=host, refresh=True))
                 return value, claims
             result = response.json()
             if not isinstance(result, dict): raise ValueError('Invalid response')
             return result
-    except (requests.RequestException, OSError, ValueError, KeyError, TypeError, InvalidSignature):
-        raise ProviderUnavailable('CyberSource unavailable; keep the payment pending and reconcile') from None
+    except (requests.RequestException, OSError, ValueError, KeyError, TypeError, InvalidSignature) as exc:
+        # Record a category only, never gateway bodies, tokens or credentials.
+        raise ProviderUnavailable('CyberSource unavailable; keep the payment pending and reconcile',
+                                  type(exc).__name__) from None
 
 
-def public_key(kid, host=None):
+def public_key(kid, host=None, refresh=False):
     if host is None:
         host = host_for('sandbox')
     if host not in (host_for('sandbox'), host_for('live')):
         raise ValueError('Unsupported CyberSource API host')
     if not re.fullmatch(r'[\w-]{1,100}', kid): raise ValueError('Invalid signing key')
+    cache_key = (host, kid)
+    with _public_keys_lock:
+        cached = _public_keys.get(cache_key)
+    if not refresh and cached and cached[0] > time.monotonic():
+        return dict(cached[1])
     with requests.Session() as session:
         session.trust_env = False
         response = session.get('https://' + host + '/flex/v2/public-keys/' + kid,
-                               timeout=(5, 15), allow_redirects=False)
+                               timeout=(15, 15), allow_redirects=False)
         if response.status_code != 200 or len(response.content) > 16000:
             raise ValueError('Public key unavailable')
-        return response.json()
+        key = response.json()
+        if (not isinstance(key, dict) or key.get('kty') != 'RSA' or key.get('kid', kid) != kid
+                or not re.fullmatch(r'[A-Za-z0-9_-]{1,8192}', str(key.get('n', '')))
+                or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', str(key.get('e', '')))):
+            raise ValueError('Invalid public key')
+        with _public_keys_lock:
+            if len(_public_keys) >= 32:
+                _public_keys.pop(next(iter(_public_keys)))
+            _public_keys[cache_key] = (time.monotonic() + 600, dict(key))
+        return key

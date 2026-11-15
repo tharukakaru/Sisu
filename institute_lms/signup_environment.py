@@ -17,3 +17,10 @@ def local_signup_allowed(config, request_url):
 
 def student_kind_allowed(config, kind):
     return not config.get('il_student_signup_only') or kind == 'Student'
+
+
+def unified_teacher_enabled(config):
+    return bool(config.get('il_unified_teacher_signup') == 1
+                and config.get('il_public_signup_enabled') == 1
+                and config.get('il_shared_campus_enabled') == 1
+                and not config.get('il_control_plane'))

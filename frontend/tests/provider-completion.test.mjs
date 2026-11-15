@@ -4,10 +4,10 @@ import fs from 'node:fs'
 import vm from 'node:vm'
 const source=fs.readFileSync(new URL('../src/native/ProviderFirstLogin.vue',import.meta.url),'utf8')
 const setup=source.match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'')
-function harness(session,fail=false){
+function harness(session,fail=false,unifiedTeacher=false){
  const events=[],calls=[],redirects=[],mounted=[]
  const dialog={open:false,showModal(){this.open=true},close(){this.open=false}}
- const c={ref:value=>({value}),nextTick:async()=>{},onMounted:fn=>mounted.push(fn),defineProps:()=>({session}),defineEmits:()=>e=>events.push(e),
+ const c={ref:value=>({value}),nextTick:async()=>{},onMounted:fn=>mounted.push(fn),defineProps:()=>({session,unifiedTeacher}),defineEmits:()=>e=>events.push(e),
  request:async(...args)=>{calls.push(args);if(fail)throw Error('Please retry')},csrf:()=>'',decode:async()=>({}),fetch:async()=>({}),location:{assign:url=>redirects.push(url)}}
  vm.createContext(c);vm.runInContext(setup+'\nglobalThis.state={verified,saved,confirmation,showInstitutes,error,busy,completed,dashboard,chooseInstitutes,login}',c)
  c.state.confirmation.value=dialog
@@ -30,4 +30,11 @@ test('workspace failure keeps the success state and allows retry or sign in',asy
  const h=harness({provider_workspace_pending:true},true);await h.dashboard()
  assert.equal(h.events.length,0);assert.equal(h.busy.value,false);assert.equal(h.error.value,'Please retry')
  await h.login();assert.deepEqual(h.redirects,['/login?redirect-to=/campus'])
+})
+
+test('unified teacher completion preserves the success popup and opens the new workspace service',async()=>{
+ const h=harness({onboarding_kind:'Teacher',teaching_path:'institute'},false,true)
+ h.verified.value=true;await h.completed();assert.equal(h.dialog.open,true)
+ assert.equal(h.calls.length,0)
+ await h.dashboard();assert.equal(h.calls[0][0],'teacher_workspace');assert.deepEqual(h.events,['completed'])
 })

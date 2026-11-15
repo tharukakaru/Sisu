@@ -98,6 +98,27 @@ test('saving closes password popup and shows success without navigating or signi
  assert.equal(signouts,0);assert.deepEqual(h.redirects,[])
 })
 
+test('both Teacher signup paths return to login with a success notice after saving',async()=>{
+ for(const googleSession of [true,false]){
+  const h=harness(async()=>({created:true}),{googleSession},'Individual Teacher');let signouts=0
+  h.c.fetch=async()=>{signouts++;return {ok:true}}
+  h.c.save();await settle()
+  assert.equal(h.state.done.value,true)
+  assert.equal(h.state.successDialog.value.open,false)
+  assert.equal(signouts,googleSession?1:0)
+  assert.deepEqual(h.redirects,['/login?redirect-to=/campus&role=teacher&signup_success=teacher'])
+ }
+})
+
+test('Teacher logout failure can retry navigation without creating the account twice',async()=>{
+ const h=harness(async()=>({created:true}),{googleSession:true},'Individual Teacher')
+ h.c.fetch=async()=>({ok:false});h.c.save();await settle()
+ assert.equal(h.redirects.length,0);assert.match(h.state.successError.value,/account is saved/)
+ h.c.fetch=async()=>({ok:true});await h.c.closeSuccess()
+ assert.equal(h.redirects.length,1)
+ assert.equal(h.calls.filter(c=>c[1]==='self_complete').length,1)
+})
+
 test('success exit waits for Google sign-out and ignores duplicate clicks',async()=>{
  const h=harness();let finish,signouts=0
  h.c.fetch=()=>{signouts++;return new Promise(resolve=>finish=resolve)}
