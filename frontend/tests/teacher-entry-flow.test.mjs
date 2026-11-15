@@ -70,7 +70,7 @@ test('teacher sign-in routes preserve access gates, institute actions and signup
       assert.equal(button(pendingRoot,'Open billing'),undefined,'Do not flash a false payment warning')
       assert.equal(marker(pendingRoot,'App'),undefined)
       finishBilling({account:{workspace_available:paid}});holdBilling=false;await flush()
-      assert.ok(paid?marker(pendingRoot,'App'):button(pendingRoot,'Open billing'))
+      assert.ok(paid?marker(pendingRoot,'App'):marker(pendingRoot,'SubscriptionBilling'))
       app.unmount();app=null
     }
     for(const path of ['individual','institute'])for(const paid of [true,false]){
@@ -82,15 +82,13 @@ test('teacher sign-in routes preserve access gates, institute actions and signup
       assert.ok(signIn);signIn.props.onClick()
       session=teacher;await state.connect();await flush()
       // Existing membership wins over any old sign-in path preference.
-      assert.ok(paid?marker(root,'App'):button(root,'Open billing'))
+      assert.ok(paid?marker(root,'App'):marker(root,'SubscriptionBilling'))
       assert.equal(button(root,'Continue as individual teacher'),undefined)
       assert.deepEqual(calls.filter(c=>c[0]==='account_billing'),[['account_billing','status']])
       assert.deepEqual(calls.filter(c=>c[0]==='portal_session'),[['portal_session','current',{},'GET'],['portal_session','current',{},'GET']])
       if(!paid){
-        button(root,'Open billing').props.onClick();await nextTick()
-        assert.ok(marker(root,'SubscriptionBilling'))
-        button(root,'Back').props.onClick();await nextTick()
-        assert.ok(button(root,'Check again'))
+            assert.ok(marker(root,'SubscriptionBilling'))
+            assert.ok(button(root,'Check again'))
         available=true;button(root,'Check again').props.onClick();await flush()
         assert.ok(marker(root,'App'))
         assert.equal(calls.filter(c=>c[0]==='account_billing').length,2)
@@ -127,13 +125,11 @@ test('teacher sign-in routes preserve access gates, institute actions and signup
     app.unmount();app=null
     values.clear();session={...teacher,role:'Admin',member:{role:'Admin'}};available=false
     const root={children:[]};app=renderer.createApp(Portal);app.mount(root);await flush()
-    assert.ok(button(root,'Open billing'))
+    assert.ok(marker(root,'SubscriptionBilling'))
     billingError=true;button(root,'Check again').props.onClick();await flush()
     assert.ok(nodes(root).some(n=>n.props?.role==='alert'&&n.text==='Unable to check billing. Try again.'))
     assert.equal(marker(root,'App'),undefined)
-    button(root,'Open billing').props.onClick();await nextTick()
     assert.ok(marker(root,'SubscriptionBilling'))
-    button(root,'Back').props.onClick();await nextTick()
     billingError=false;available=true;button(root,'Check again').props.onClick();await flush()
     assert.ok(marker(root,'App'))
     app.unmount();app=null

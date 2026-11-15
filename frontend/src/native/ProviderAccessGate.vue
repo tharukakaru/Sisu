@@ -2,10 +2,9 @@
 import {ref,onMounted} from 'vue'
 import InstituteJoinPicker from './InstituteJoinPicker.vue'
 import MobileVerification from './MobileVerification.vue'
-import {request} from './client'
+import {request,csrf,decode} from './client'
 import SubscriptionBilling from './SubscriptionBilling.vue'
 import TeacherSignupLayout from './TeacherSignupLayout.vue'
-import PaymentRequired from './PaymentRequired.vue'
 import {ArrowLeft,ArrowRight} from 'lucide-vue-next'
 const joinMode=ref('')
 const phoneVerified=ref(false)
@@ -19,6 +18,8 @@ async function verifiedPhone(value){
     if(requestsPending.value)joinMode.value='Review requests'
   }catch{/* The request picker displays actionable errors when opened. */}
 }
+const logoutError=ref(''),loggingOut=ref(false)
+async function signIn(){if(loggingOut.value)return;loggingOut.value=true;logoutError.value='';try{await decode(await fetch('/api/method/logout',{method:'POST',credentials:'same-origin',headers:{'X-Frappe-CSRF-Token':csrf()}}));window.location.assign('/login?redirect-to=/campus')}catch(e){logoutError.value=e.message;loggingOut.value=false}}
 function back(){if(billingOpen.value){billingOpen.value=false}else if(joinMode.value){joinMode.value=''}else if(individual.value){individual.value=false}else if(window.history.length>1){window.history.back()}}
 const props=defineProps({role:String,selectionOnly:Boolean,initialIndividual:Boolean,checking:Boolean,error:String});const emit=defineEmits(['changed','continue']);const panel=ref(null)
 const billingOpen=ref(false)
@@ -27,7 +28,7 @@ function continueIndividual(){if(props.selectionOnly)emit('continue');else indiv
 onMounted(async()=>{panel.value?.focus();if(props.selectionOnly){try{const data=await request('profiles','me',{},'GET');await verifiedPhone(data.phone_verified)}catch{}}})
 </script>
 <template>
-<PaymentRequired v-if="!selectionOnly&&!billingOpen&&(role!=='Teacher'||individual)" :checking="checking" :error="error" @back="back" @billing="billingOpen=true" @check="emit('changed')"/>
+<main v-if="!selectionOnly" class="provider-gate"><div class="workspace-preview" inert aria-hidden="true"><header>SISU · {{role==='Teacher'?'Teacher':'Institute'}} dashboard</header><nav>Overview · Classes · Students · Assignments</nav><div class="workspace-panels"><section v-for="title in ['Your classes','Learning activity','Upcoming sessions']" :key="title"><h2>{{title}}</h2><div class="preview-line"/><div class="preview-line"/></section></div></div><section class="subscription-overlay" aria-labelledby="subscription-title"><h1 id="subscription-title">Choose a plan to open your dashboard</h1><p>Your profile is saved. Your workspace stays locked until your subscription is activated.</p><SubscriptionBilling standalone @changed="emit('changed')"/><button :disabled="checking" @click="emit('changed')">Check again</button><button class="workspace-back" :disabled="loggingOut" @click="signIn">Back to sign in</button><p v-if="logoutError" role="alert">{{logoutError}}</p><p v-if="error" role="alert">{{error}}</p></section></main>
 <TeacherSignupLayout v-else-if="role==='Teacher'" active class="teacher-workspace-layout">
   <main class="teacher-workspace-content">
     <section ref="panel" class="teacher-workspace-panel" tabindex="-1" aria-labelledby="teacher-workspace-title">

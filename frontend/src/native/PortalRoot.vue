@@ -109,7 +109,7 @@ onMounted(()=>{if(!firebaseTestPage&&!passwordConfirmation){connect();request('p
 
   <Subscription v-else-if="session?.control_plane&&session.authenticated" control-plane/>
 
-  <ProviderFirstLogin v-else-if="session?.provider_onboarding_required" :session="session"/>
+  <ProviderFirstLogin v-else-if="session?.provider_onboarding_required||session?.provider_workspace_pending" :session="session" @continue="connect"/>
   <ProviderAccessGate v-else-if="teacherView==='institute'" key="institute-entry" role="Teacher" selection-only @continue="continueIndividually" @changed="connect">
     <details v-if="session.shared_campus" class="teacher-approved-workspaces"><summary>Open an approved teaching workspace</summary><CampusSwitcher provider @opening="continueIndividually"/></details>
     <button v-else-if="session.member" type="button" class="entry-secondary" @click="continueIndividually">Open my current workspace</button>
