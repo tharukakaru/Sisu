@@ -112,3 +112,5 @@ website_context = {"favicon": "/assets/institute_lms/sisu-icon.png?v=sisu-202611
 update_website_context = "institute_lms.portal_entry.website_context"
 
 _ai_hook('IL Owner Access', 'on_update', 'institute_lms.admin_mfa.sync_access')
+
+scheduler_events['cron'].setdefault('* * * * *', []).append('institute_lms.session_reminders.dispatch')
