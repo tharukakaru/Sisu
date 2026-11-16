@@ -1,1 +1,0 @@
-import{a,s,S as i}from"./index-CnBdIru8.js";const m={__name:"PackageBilling",emits:["changed"],setup(o,{emit:n}){const t=n;return(r,e)=>(a(),s(i,{onChanged:e[0]||(e[0]=c=>t("changed"))}))}};export{m as default};
