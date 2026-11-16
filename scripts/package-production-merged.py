@@ -9,7 +9,7 @@ import tarfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BASELINE = 'f013d40'
+BASELINE = '25a89d3'
 TEXT = {'.py', '.json', '.vue', '.js', '.mjs', '.css', '.html', '.toml', '.txt'}
 
 
@@ -30,10 +30,10 @@ def main():
     if any(not p.startswith('institute_lms/public/portal/') for p in deleted):
         raise RuntimeError('Source deletion needs an explicit migration plan')
     names = [p for p in names if not p.startswith('frontend/tests/')]
-    # Previous deployments uploaded selected bundles, so a Git baseline does
-    # not guarantee that unchanged generated assets exist on the server.
+    # Package changes since the verified live student-dialog fix. The installer
+    # checks every unchanged asset before modifying the server.
     assets = git('ls-tree', '-r', '--name-only', commit, '--', 'institute_lms/public/portal').decode().splitlines()
-    names = sorted(set(names) | set(assets))
+    names = sorted(set(names))
     manifest = {'commit': commit, 'baseline': git('rev-parse', BASELINE).decode().strip(),
                 'files': {}, 'required_assets': {}}
     payload = {}
@@ -47,7 +47,9 @@ def main():
             'generated': name.startswith('institute_lms/public/portal/') or name == 'institute_lms/www/campus.html'}
         payload[name] = data
     for name in assets:
-        data = payload[name]
+        data = payload.get(name)
+        if data is None:
+            data = git('show', commit + ':' + name)
         manifest['required_assets'][name] = hashlib.sha256(data).hexdigest()
     raw = json.dumps(manifest, sort_keys=True, indent=2).encode()
     output = ROOT.parent / 'release-candidate/sisu-production-merged.tgz'
@@ -63,7 +65,7 @@ def main():
     source = re.sub(r"MANIFEST_DIGEST = '[^']+'", "MANIFEST_DIGEST = '" + hashlib.sha256(raw).hexdigest() + "'", source)
     installer.write_text(source, encoding='utf-8')
     print('PACKAGED:', commit, len(payload), 'files;', output.stat().st_size, 'compressed bytes')
-    print('Required assets included in archive:', len(manifest['required_assets']))
+    print('Required assets verified before deployment:', len(manifest['required_assets']))
 
 
 if __name__ == '__main__':
