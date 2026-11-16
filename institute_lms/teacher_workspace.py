@@ -142,6 +142,7 @@ def cancel_request(request):
 
 
 RECOVERY_METHODS = frozenset({
+    'institute_lms.invitations.list_invitations', 'institute_lms.invitations.respond',
     'institute_lms.api.bootstrap', 'institute_lms.full_api.capabilities',
     'institute_lms.teacher_workspace.summary', 'institute_lms.teacher_workspace.open_workspace', 'institute_lms.teacher_workspace.cancel_request',
     'institute_lms.campus_context.select', 'institute_lms.campus_context.choices', 'institute_lms.campus_context.clear',

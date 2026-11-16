@@ -1,5 +1,7 @@
 <script setup>
 import ExistingAccountDialog from './ExistingAccountDialog.vue'
+import CheckoutEntry from './CheckoutEntry.vue'
+const checkoutInvoice=new URLSearchParams(location.search).get('checkout_invoice')
 import {googleSignupEntry} from './existingAccount'
 import ProviderFirstLogin from './ProviderFirstLogin.vue'
 import ProviderOnboardingStatus from './ProviderOnboardingStatus.vue'
@@ -105,6 +107,8 @@ onMounted(()=>{if(!firebaseTestPage&&!passwordConfirmation){connect();request('p
 
   <PageLoading v-else-if="googleSignupError" :error="googleSignupError"/>
   <ExistingAccountDialog v-else-if="existingGoogleAccount" authenticated/>
+
+  <CheckoutEntry v-else-if="checkoutInvoice&&session?.authenticated" :invoice="checkoutInvoice" :user="session.user"/>
 
   <ControlPlane v-else-if="session?.control_plane&&session.role==='Super Admin'"/>
 

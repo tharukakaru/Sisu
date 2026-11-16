@@ -157,21 +157,22 @@ onMounted(()=>{if(!policy.value.privacy_policy_url&&!props.googleSession)reloadP
   </div></div>
 
 </template><template v-else-if="instituteSignup">
-  <label>Institute name<input v-model="form.organization" aria-label="Institute name" required maxlength="254" placeholder="Your institute" autocomplete="organization"></label>
-  <div class="teacher-field-group" role="group" aria-labelledby="institute-admin-label"><span id="institute-admin-label">Administrator full name</span><div class="teacher-paired-fields">
+  <fieldset class="institute-registration-section"><legend>Institute details</legend><p>Choose the name and username for your institute.</p><label>Institute name<input v-model="form.organization" aria-label="Institute name" required maxlength="254" placeholder="Your institute" autocomplete="organization"></label>
+  <label>Preferred username<input v-model="form.username" aria-label="Username" required maxlength="60" pattern="[a-zA-Z][a-zA-Z0-9_]{2,29}" title="Use 3–30 letters, digits or underscores; start with a letter. Usernames are saved in lowercase." placeholder="Choose a username" autocomplete="username"></label>
+  <div class="teacher-field-group" role="group" aria-labelledby="institute-location-label"><span id="institute-location-label">Country / time zone</span><div class="teacher-paired-fields">
+    <label><span class="teacher-sr-only">Country</span><CountrySelect v-model="form.country" aria-label="Country" required /></label>
+    <label><span class="teacher-sr-only">Timezone</span><input v-model="form.timezone" aria-label="Timezone" required maxlength="254" placeholder="e.g. Asia/Colombo"></label>
+  </div></div>
+</fieldset><fieldset class="institute-registration-section"><legend>Administrator details</legend><p>Use an email and mobile number you can verify.</p>  <div class="teacher-field-group" role="group" aria-labelledby="institute-admin-label"><span id="institute-admin-label">Administrator full name</span><div class="teacher-paired-fields">
     <label><span class="teacher-sr-only">Administrator first name</span><input v-model="form.first_name" aria-label="Administrator first name" required maxlength="60" placeholder="First name" autocomplete="given-name"></label>
     <label><span class="teacher-sr-only">Administrator last name</span><input v-model="form.last_name" aria-label="Administrator last name" required maxlength="60" placeholder="Last name" autocomplete="family-name"></label>
   </div></div>
   <label>Your role at the institute<input v-model="form.job" aria-label="Your role at the institute" required maxlength="254" placeholder="Owner, principal or administrator" autocomplete="organization-title"></label>
   <label>Email<input v-model="form.email" aria-label="Email" type="email" required maxlength="254" placeholder="institute@example.com" autocomplete="email"></label>
   <label>Phone number<PhoneInput v-model="form.phone" aria-label="Phone number" required /></label>
-  <label>Recovery contact name<input v-model="form.backup_name" aria-label="Recovery contact name" required maxlength="60" placeholder="Enter contact name"></label>
+</fieldset><fieldset class="institute-registration-section"><legend>Recovery contact</legend><p>Add a backup contact for your institute account.</p>  <label>Recovery contact name<input v-model="form.backup_name" aria-label="Recovery contact name" required maxlength="60" placeholder="Enter contact name"></label>
   <label>Recovery contact email<input v-model="form.backup_email" aria-label="Recovery contact email" type="email" required maxlength="254" placeholder="recovery@example.com"></label>
-  <label>Preferred username<input v-model="form.username" aria-label="Username" required maxlength="60" pattern="[a-zA-Z][a-zA-Z0-9_]{2,29}" title="Use 3–30 letters, digits or underscores; start with a letter. Usernames are saved in lowercase." placeholder="Choose a username" autocomplete="username"></label>
-  <div class="teacher-field-group" role="group" aria-labelledby="institute-location-label"><span id="institute-location-label">Country / time zone</span><div class="teacher-paired-fields">
-    <label><span class="teacher-sr-only">Country</span><CountrySelect v-model="form.country" aria-label="Country" required /></label>
-    <label><span class="teacher-sr-only">Timezone</span><input v-model="form.timezone" aria-label="Timezone" required maxlength="254" placeholder="e.g. Asia/Colombo"></label>
-  </div></div>
+</fieldset>
 </template><div v-else class="signup-grid"><label v-for="field in required" :key="field"><span class="signup-field-heading"><span>{{label(field)}}<template v-if="!googleSession"> · Required</template></span><small v-if="field==='birth_date'" id="signup-birthday-age" class="birthday-age" aria-live="polite">{{studentAge===null?'':`Age today: ${studentAge} ${studentAge===1?'year':'years'}`}}</small></span><PhoneInput v-if="field==='phone'" v-model="form[field]" required /><CountrySelect v-else-if="field==='country'" v-model="form[field]" required /><input v-else-if="field==='birth_date'" v-model="form.birth_date" aria-label="Date of birth" aria-describedby="signup-birthday-age" type="date" autocomplete="bday" :max="latestBirthDate" required /><input v-else v-model="form[field]" :aria-label="label(field)" :readonly="googleSession&&field==='email'" :type="field.includes('email')?'email':field==='phone'?'tel':'text'" required :maxlength="field.includes('name')?60:254" :pattern="field==='username'?'[a-zA-Z][a-zA-Z0-9_]{2,29}':undefined" :title="field==='username'?'Use 3–30 letters, digits or underscores; start with a letter.':undefined" :placeholder="field==='phone'?'+94761234567':field==='username'?'e.g. sisu_student':''"/></label><p class="phone-help">Choose your country code and enter a mobile number that can receive verification codes.</p><label v-for="field in (form.kind==='Student'?[]:['website','qualifications','bio'])" :key="field">{{label(field)}} · Optional<PhoneInput v-if="field==='phone'" v-model="form[field]" required /><CountrySelect v-else-if="field==='country'" v-model="form[field]" required /><input v-else v-model="form[field]" :aria-label="label(field)" :readonly="googleSession&&field==='email'" :type="field==='website'?'url':'text'" maxlength="500"/></label></div>
 <div v-if="providerSignup" class="teacher-password-fields">
   <label>Password · Required
@@ -352,4 +353,8 @@ onMounted(()=>{if(!policy.value.privacy_policy_url&&!props.googleSession)reloadP
 .verified-signup .signup-back:hover:not(:disabled){background:#f5f1fa;color:#482174}
 .verified-signup .signup-back:focus-visible{outline:2px solid #592b91;outline-offset:3px}
 .signup-back svg{flex-shrink:0}
+</style>
+
+<style scoped>
+.institute-signup-form .institute-registration-section{min-width:0;display:grid;gap:18px;border:0;border-top:1px solid #e6ddec;padding:24px 0 8px;margin:24px 0 0}.institute-registration-section legend{float:left;width:100%;padding:0;font-size:18px;font-weight:800;color:#2c2038}.institute-signup-form .institute-registration-section>p{margin:-10px 0 4px;font-size:14px;line-height:1.6;color:#685b77}.institute-signup-form .institute-registration-section label{margin:0;gap:8px}.institute-signup-form .institute-registration-section input{min-height:48px;background:#fff;border-color:#cfc2df;border-radius:10px}.institute-signup-form .institute-registration-section :is(input,button):focus-visible{outline:3px solid #9066ba;outline-offset:3px}@media(max-width:600px){.institute-signup-form .institute-registration-section input{font-size:16px}.institute-signup-form .teacher-paired-fields{grid-template-columns:1fr}}
 </style>

@@ -6,18 +6,34 @@ from .subscription_receipt import date_label
 DT = 'IL Subscription SMS'
 
 
+def customer_user(account):
+    """Institute subscriptions belong to a workspace, not a User record."""
+    if account.get('role') != 'Institute':
+        return account.user
+    admins = frappe.get_all('IL Member', filters={
+        'institute': account.institute, 'role': 'Admin', 'active': 1,
+    }, pluck='user', order_by='creation asc, name asc')
+    if account.billing_email in admins:
+        return account.billing_email
+    return admins[0] if admins else None
+
+
 def queue_paid(bill, account):
     if bill.status != 'Paid' or not frappe.conf.get('il_subscription_sms_enabled'):
         return
     if 'sandbox' in str(bill.payment_channel or '').lower():
         return
-    profile = frappe.db.get_value('IL Public Profile', {'user': account.user}, ['username','display_name','lms_id'], as_dict=True) or {}
+    user = customer_user(account)
+    if not user:
+        return
+    profile = frappe.db.get_value('IL Public Profile', {'user': user}, ['username','display_name','lms_id'], as_dict=True) or {}
     user_id = profile.get('lms_id')
-    label = (profile.get('display_name') or account.display_name or account.user)[:70]
-    username = profile.get('username') or account.user
+    label = (account.display_name if account.get('role') == 'Institute' else profile.get('display_name')) or account.display_name or user
+    label = label[:70]
+    username = profile.get('username') or user
     identity = label + ' (@' + username.lstrip('@') + ')' + ((' '+user_id) if user_id else '')
     amount = f'{bill.currency} {int(bill.amount_minor)/100:,.2f}'
-    teacher_phone = frappe.db.get_value('IL Verified Phone', {'user':account.user}, 'phone')
+    teacher_phone = frappe.db.get_value('IL Verified Phone', {'user':user}, 'phone')
     admin_phone = frappe.conf.get('il_subscription_admin_sms_phone')
     rows = [('teacher',teacher_phone,f'Payment confirmed: {amount} for your {bill.plan} plan. Active until {date_label(bill.period_end)}. Receipt {bill.receipt_number}. Download your PDF in Subscription.'),
             ('admin',admin_phone,f'{identity} joined the {bill.plan} paid plan. Payment confirmed: {amount}. Invoice {bill.receipt_number}. Active until {date_label(bill.period_end)}.')]
@@ -27,7 +43,7 @@ def queue_paid(bill, account):
         key = hashlib.sha256((bill.name+':'+recipient).encode()).hexdigest()
         if frappe.db.exists(DT, {'notice_key':key}):
             continue
-        notice = frappe.get_doc(dict(doctype=DT,notice_key=key,invoice=bill.name,user=account.user,
+        notice = frappe.get_doc(dict(doctype=DT,notice_key=key,invoice=bill.name,user=user,
             recipient=recipient,phone=phone,body=body,status='Queued')).insert(ignore_permissions=True)
         frappe.enqueue('institute_lms.subscription_sms.deliver',notice=notice.name,enqueue_after_commit=True,queue='short')
 

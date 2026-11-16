@@ -7,6 +7,7 @@ import {request} from './client'
 import SubscriptionBilling from './SubscriptionBilling.vue'
 import TeacherSignupLayout from './TeacherSignupLayout.vue'
 import PaymentRequired from './PaymentRequired.vue'
+import InstituteSetupLayout from './InstituteSetupLayout.vue'
 import {ArrowLeft,ArrowRight} from 'lucide-vue-next'
 const joinMode=ref('')
 const phoneVerified=ref(false)
@@ -29,7 +30,8 @@ onMounted(async()=>{panel.value?.focus();if(props.selectionOnly){try{const data=
 </script>
 <template>
 <main v-if="unifiedTeacher&&role==='Teacher'" class="unified-recovery"><h1>Your teacher subscription</h1><p>Your trial has ended. Choose a personal plan or open an approved institute workspace with active coverage.</p><TeacherInstitutes @navigate="billingOpen=true"/><SubscriptionBilling standalone @changed="emit('changed')"/></main>
-<PaymentRequired v-else-if="!selectionOnly&&!billingOpen&&(role!=='Teacher'||individual)" :checking="checking" :error="error" @back="back" @billing="billingOpen=true" @check="emit('changed')"/>
+<InstituteSetupLayout v-else-if="role!=='Teacher'" title="Choose a plan for your institute" description="Review your subscription and complete payment to open your institute workspace." :step="2"><div v-if="error" class="institute-access-error" role="alert"><p>{{error}}</p><button type="button" :disabled="checking" @click="emit('changed')">{{checking?'Checking access�':'Try again'}}</button></div><SubscriptionBilling standalone onboarding @changed="emit('changed')"/></InstituteSetupLayout>
+<PaymentRequired v-else-if="!selectionOnly&&!billingOpen&&individual" :checking="checking" :error="error" @back="back" @billing="billingOpen=true" @check="emit('changed')"/>
 <TeacherSignupLayout v-else-if="role==='Teacher'" active class="teacher-workspace-layout">
   <main class="teacher-workspace-content">
     <section ref="panel" class="teacher-workspace-panel" tabindex="-1" aria-labelledby="teacher-workspace-title">
@@ -50,11 +52,7 @@ onMounted(async()=>{panel.value?.focus();if(props.selectionOnly){try{const data=
     </section>
   </main>
 </TeacherSignupLayout>
-<main v-else class="provider-gate"><div class="workspace-preview" inert aria-hidden="true"><header>SISU · {{role==='Teacher'?'Teacher':'Institute'}} workspace</header><nav>Overview · Classes · Students · Assignments</nav><div class="workspace-panels"><section v-for="title in ['Your classes','Learning activity','Upcoming sessions']" :key="title"><h2>{{title}}</h2><div class="preview-line"/><div class="preview-line"/></section></div></div><section ref="panel" class="subscription-overlay" tabindex="-1" aria-labelledby="gate-title"><button v-if="billingOpen" type="button" class="workspace-back" @click="back"><ArrowLeft :size="13" aria-hidden="true"/>Back</button><h1 id="gate-title">Welcome to your {{role==='Teacher'?'teacher':'institute'}} workspace</h1><p>{{role==='Teacher'?'Choose how you teach. Manage your own classes with an individual plan, or request access to an institute’s teaching workspace.':'Choose a plan for your institute to continue.'}}</p><nav v-if="role==='Teacher'" class="join-links"><button :aria-pressed="!joinMode" @click="joinMode=''"><strong>Teach independently</strong><span>Your classes, students and personal subscription.</span></button><button :aria-pressed="joinMode==='Existing teacher confirmation'" @click="joinMode='Existing teacher confirmation'"><strong>I teach at an institute</strong><span>Ask your institute to confirm your teaching access.</span></button><button :aria-pressed="joinMode==='New application'" @click="joinMode='New application'"><strong>Find an institute</strong><span>Apply to join a new teaching community.</span></button></nav><InstituteJoinPicker v-if="joinMode" :key="joinMode" :purpose="joinMode" @back="joinMode=''"/><SubscriptionBilling v-else standalone @changed="emit('changed')"/></section></main></template>
-<style scoped>.join-links{display:flex;flex-wrap:wrap;gap:14px;margin:20px 0}.join-links button{background:none;border:0;color:#593092;text-decoration:underline;cursor:pointer;padding:8px}.provider-gate{min-height:100vh;background:#f6f3fb;padding:32px 16px;position:relative}.workspace-preview{position:fixed;inset:0;padding:40px;filter:blur(5px);opacity:.38;pointer-events:none}.workspace-preview header{font:700 26px system-ui}.workspace-preview nav{margin:28px 0}.workspace-panels{display:grid;grid-template-columns:repeat(3,1fr);gap:25px}.workspace-panels section{padding:30px;background:white;border-radius:20px;height:220px}.preview-line{height:20px;background:#e5dfec;margin:24px 0;border-radius:8px}.subscription-overlay{position:relative;max-width:960px;margin:auto;background:white;border-radius:22px;padding:28px;box-shadow:0 15px 80px #34234c30}.subscription-overlay>h1{font:700 26px system-ui;color:#39214d}.subscription-overlay:focus{outline:none}.subscription-overlay :deep(.billing-standalone){min-height:0;padding:0}.subscription-overlay :deep(.billing-page){max-width:100%}@media(max-width:600px){.subscription-overlay{padding:16px}.workspace-panels{grid-template-columns:1fr}}</style>
-
-<style scoped>.join-links{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.join-links button{display:flex;flex-direction:column;gap:9px;text-align:left;text-decoration:none;padding:18px;border:1px solid #e5ddef;border-radius:16px;background:#fff;font:inherit;line-height:1.5}.join-links button[aria-pressed=true]{border-color:#6c6aee;background:#f3f1ff;box-shadow:0 0 0 1px #6c6aee}.join-links strong{font-size:14px}.join-links span{font-size:12px;color:#786c85}.join-links button:focus-visible{outline:3px solid #b9b5fa;outline-offset:3px}.subscription-overlay>p{color:#786c85;line-height:1.7;max-width:700px}@media(max-width:680px){.join-links{grid-template-columns:1fr}}</style>
-
+</template>
 <style scoped>
 .teacher-workspace-content{display:flex;align-items:center;min-width:0;padding:48px 48px 48px 0;color:#19182e;font-family:'Manrope Variable',sans-serif}
 .teacher-workspace-panel{width:100%;min-width:0;outline:none}
@@ -80,3 +78,5 @@ onMounted(async()=>{panel.value?.focus();if(props.selectionOnly){try{const data=
 </style>
 
 <style scoped>.unified-recovery{max-width:1100px;margin:40px auto;padding:24px}.unified-recovery>p{line-height:1.7;margin-bottom:24px}</style>
+
+<style scoped>.institute-access-error{padding:16px 20px;margin-bottom:24px;border:1px solid #efc4cd;border-radius:12px;background:#fff4f6;color:#942b42}.institute-access-error p{margin:0 0 12px;line-height:1.6}.institute-access-error button{min-height:44px;padding:10px 18px;border:1px solid #c78698;border-radius:8px;background:white;color:#942b42;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer}</style>

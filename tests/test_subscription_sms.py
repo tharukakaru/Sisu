@@ -68,3 +68,30 @@ class SubscriptionSMS(TestCase):
     def test_sandbox_payment_never_sends_live_confirmation(self):
         self.bill.payment_channel='CyberSource sandbox';self.module.queue_paid(self.bill,self.account)
         self.assertFalse(self.notices)
+
+    def test_institute_uses_active_billing_admin_for_confirmation(self):
+        self.account.update(role='Institute',user=None,institute='academy',
+                            billing_email='billing@example.test',display_name='Local QA Academy')
+        self.f.get_all=MagicMock(return_value=['owner@example.test','billing@example.test'])
+        self.module.queue_paid(self.bill,self.account)
+        self.assertEqual(len(self.notices),2)
+        self.assertTrue(all(n.user=='billing@example.test' for n in self.notices.values()))
+        admin=next(n for n in self.notices.values() if n.recipient=='admin')
+        self.assertIn('Local QA Academy',admin.body)
+        self.f.get_all.assert_called_once_with('IL Member',filters={
+            'institute':'academy','role':'Admin','active':1},pluck='user',order_by='creation asc, name asc')
+        customer=next(n for n in self.notices.values() if n.recipient=='teacher')
+        send=MagicMock(return_value={'accepted':True})
+        with patch.dict(sys.modules,{'institute_lms.providers':SimpleNamespace(sms=send)}):
+            self.module.deliver(customer.name);self.module.deliver(customer.name)
+        self.assertEqual(send.call_count,1)
+        self.assertEqual(customer.status,'Accepted')
+
+    def test_institute_does_not_use_unrelated_billing_email_as_user(self):
+        self.account.update(role='Institute',user=None,institute='academy',
+                            billing_email='external@example.test')
+        self.f.get_all=MagicMock(return_value=['owner@example.test'])
+        self.assertEqual(self.module.customer_user(self.account),'owner@example.test')
+        self.f.get_all.return_value=[]
+        self.module.queue_paid(self.bill,self.account)
+        self.assertFalse(self.notices)

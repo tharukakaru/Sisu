@@ -34,7 +34,7 @@ onBeforeUnmount(()=>{disposed=true;clearInterval(tickTimer);clearInterval(syncTi
 </script>
 
 <template>
-  <div v-if="context?.kind==='Institute'" class="teacher-trial teacher-plan" :class="{'teacher-trial--urgent':!context.available}" :title="context.title"><Building2 :size="17" aria-hidden="true"/><div><span>{{context.available?'Institute workspace':'Institute plan required'}}</span><strong>{{context.title}}</strong></div></div>
+  <div v-if="context?.kind==='Institute'" class="teacher-trial teacher-plan" :class="{'teacher-trial--urgent':!context.available}" :title="`${context.title} · ${context.state}`"><Building2 :size="17" aria-hidden="true"/><div><span>{{context.available?'Institute plan':'Institute plan · Inactive'}}</span><strong>{{context.plan?`SISU ${context.plan}`:'No plan selected'}}</strong></div></div>
   <div v-else-if="active" class="teacher-trial" :class="{'teacher-trial--urgent':parts.urgent}" role="timer" :aria-label="accessible" aria-live="off">
     <Clock3 :size="17" aria-hidden="true"/>
     <div><span>{{label}}</span><strong>{{parts.days}}<small>d</small> {{String(parts.hours).padStart(2,'0')}}<small>h</small> {{String(parts.minutes).padStart(2,'0')}}<small>m</small></strong></div>
