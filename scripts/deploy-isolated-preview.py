@@ -98,7 +98,7 @@ def main():
                 except Exception:
                     if attempt==11: raise
                     time.sleep(5)
-            print('PREVIEW READY: https://preview.sisuacademylk.com/campus — merged build a907dd9. Production files/services untouched. Test payments, SMS and outgoing email disabled; scheduler disabled. Browser workflow testing still required.',flush=True)
+            print('PREVIEW READY: https://preview.sisuacademylk.com/campus - merged build a907dd9. Production files/services untouched. Test payments, SMS and outgoing email disabled; scheduler disabled. Browser workflow testing still required.',flush=True)
         except Exception:
             import traceback
             traceback.print_exc(file=log)
