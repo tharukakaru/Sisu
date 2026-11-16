@@ -169,6 +169,7 @@ def maintenance(enabled, log):
 
 
 def get_url(url):
+    print('Checking: ' + url, flush=True)
     with urllib.request.urlopen(url, timeout=30) as response:
         if response.status != 200:
             raise RuntimeError('HTTPS status check failed')
@@ -182,8 +183,9 @@ def health(manifest, catalog_before):
     if len(assets) != 2:
         raise RuntimeError('Unexpected campus entry assets')
     for site in SITES:
-        ping = json.loads(get_url('https://' + site + '/api/method/ping'))
-        if ping.get('message') != 'pong':
+        response = json.loads(get_url('https://' + site + '/api/method/institute_lms.plan_catalog.public_catalog'))
+        catalog = response.get('message', {})
+        if not isinstance(catalog, dict) or not isinstance(catalog.get('plans'), dict) or catalog.get('currency') != 'LKR':
             raise RuntimeError('API health check failed: ' + site)
         html = get_url('https://' + site + '/campus').decode()
         if not all(asset in html for asset in assets):
@@ -284,10 +286,35 @@ def apply_release(manifest, payload, backup, log, uid, gid):
         raise
 
 
+def resume_checks(manifest, payload, backup):
+    recorded = json.loads((backup / 'release.json').read_text())
+    if recorded != manifest:
+        raise RuntimeError('Recovery backup does not match this release')
+    for name, data in payload.items():
+        path = safe_path(APP, name)
+        if not path.is_file() or fingerprint(name, path.read_bytes()) != fingerprint(name, data):
+            raise RuntimeError('Installed release mismatch: ' + name)
+    with (backup / 'recovery.log').open('a') as log:
+        try:
+            for site in SITES:
+                run([str(BENCH / 'env/bin/python'), '-c', SCHEMA_CHECK, site], log, True)
+            health(manifest, json.loads((backup / 'catalog-before.json').read_text()))
+            run(['supervisorctl', 'start', SERVICES[1]], log)
+            run(['supervisorctl', 'status', *SERVICES], log)
+        except Exception:
+            traceback.print_exc(file=log)
+            print('Recovery failed; inspect ' + str(backup / 'recovery.log'), flush=True)
+            raise
+    print('VERIFIED: installed release, four site schemas, HTTPS campus/assets and unchanged public catalogue. Web/workers running. No migrations repeated.', flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--apply', action='store_true')
+    parser.add_argument('--resume-checks', metavar='BACKUP_DIRECTORY_NAME')
     args = parser.parse_args()
+    if args.apply and args.resume_checks:
+        raise RuntimeError('Choose apply or resume-checks, not both')
     if os.name != 'posix' or os.geteuid() != 0:
         raise RuntimeError('Run with root SSH using python3')
     import pwd
@@ -311,6 +338,14 @@ def main():
             raise RuntimeError('A site is already in maintenance mode: ' + site)
     manifest, payload = inspect_release(ARCHIVE, APP, MANIFEST_DIGEST)
     print('PREFLIGHT PASS: ' + manifest['commit'] + '; ' + str(len(payload)) + ' files. Source hashes and asset dependencies verified.', flush=True)
+    if args.resume_checks:
+        if not re.fullmatch(r'merged-production-[0-9]{8}T[0-9]{12}Z', args.resume_checks):
+            raise RuntimeError('Invalid backup directory name')
+        backup = Path('/home/sisu/.sisu-secrets') / args.resume_checks
+        if backup.is_symlink() or not backup.is_dir():
+            raise RuntimeError('Private backup directory missing')
+        resume_checks(manifest, payload, backup)
+        return
     if not args.apply:
         return
     account = pwd.getpwnam('sisu')

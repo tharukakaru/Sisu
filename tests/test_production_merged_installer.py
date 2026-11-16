@@ -206,5 +206,50 @@ class PrivateBackupTests(unittest.TestCase):
                 os.chdir(original)
 
 
+
+
+
+class RecoveryTests(unittest.TestCase):
+    def test_health_uses_authorized_catalog_not_generic_ping(self):
+        with tempfile.TemporaryDirectory() as folder:
+            app = Path(folder)
+            entry = app / 'institute_lms/www/campus.html'
+            entry.parent.mkdir(parents=True)
+            assets = ['/assets/institute_lms/portal/assets/index-test.js', '/assets/institute_lms/portal/assets/index-test.css']
+            html = ''.join('<script src="' + a + '"></script>' for a in assets).encode()
+            entry.write_bytes(html)
+            catalogue = {'message': {'plans': {}, 'currency': 'LKR'}}
+            def request(url):
+                self.assertNotIn('/api/method/ping', url)
+                if url.endswith('public_catalog'): return json.dumps(catalogue).encode()
+                if url.endswith('/campus'): return html
+                return b'asset'
+            manifest = {'required_assets': {'institute_lms/public/' + a.removeprefix('/assets/institute_lms/'): installer.sha(b'asset') for a in assets}}
+            with patch.object(installer, 'APP', app), patch.object(installer, 'get_url', side_effect=request):
+                installer.health(manifest, catalogue)
+
+    def test_recovery_checks_before_workers_without_migrations(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            app = root / 'app'; app.mkdir()
+            file = app / 'institute_lms/test.py'; file.parent.mkdir(); file.write_bytes(b'code')
+            manifest = {'commit': 'release'}
+            (root / 'release.json').write_text(json.dumps(manifest))
+            (root / 'catalog-before.json').write_text('{}')
+            calls = []
+            def run(cmd, *args): calls.append(cmd)
+            def health(*args):
+                self.assertFalse(any('start' in c for c in calls))
+            with patch.object(installer, 'APP', app), patch.object(installer, 'run', side_effect=run), patch.object(installer, 'health', side_effect=health):
+                installer.resume_checks(manifest, {'institute_lms/test.py': b'code'}, root)
+                self.assertFalse(any('migrate' in c for c in calls))
+                self.assertIn(['supervisorctl', 'start', installer.SERVICES[1]], calls)
+                calls.clear()
+                with patch.object(installer, 'health', side_effect=RuntimeError('unhealthy')):
+                    with self.assertRaisesRegex(RuntimeError, 'unhealthy'):
+                        installer.resume_checks(manifest, {'institute_lms/test.py': b'code'}, root)
+                self.assertFalse(any('start' in c for c in calls))
+
+
 if __name__ == '__main__':
     unittest.main()
