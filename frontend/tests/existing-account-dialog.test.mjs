@@ -5,7 +5,7 @@ import vm from 'node:vm'
 const source=fs.readFileSync(new URL('../src/native/ExistingAccountDialog.vue',import.meta.url),'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'')
 function harness(authenticated,endSession=async()=>{}){
  const redirects=[];let ended=0
- const c={ref:value=>({value}),defineProps:()=>({authenticated}),onMounted:()=>{},onUnmounted:()=>{},endSession:()=>{ended++;return endSession()},window:{location:{assign:url=>redirects.push(url)}}}
+ const c={ref:value=>({value}),defineProps:()=>({authenticated}),onMounted:()=>{},onBeforeUnmount:()=>{},endSession:()=>{ended++;return endSession()},window:{location:{assign:url=>redirects.push(url)}}}
  vm.createContext(c);vm.runInContext(source+';globalThis.state={busy,error}',c)
  return {c,redirects,ended:()=>ended}
 }
@@ -41,3 +41,4 @@ test('a new Google identity continues signup after policy is loaded',async()=>{
  const result=await googleSignupEntry({authenticated:true},true,async(module)=>module==='portal_policy'?{self_signup_enabled:true}:{email:'new@example.invalid'})
  assert.equal(result.accountExists,false);assert.equal(result.policy.self_signup_enabled,true)
 })
+

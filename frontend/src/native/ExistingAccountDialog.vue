@@ -1,5 +1,5 @@
 <script setup>
-import {ref,onMounted,onUnmounted} from 'vue'
+import {ref,onMounted,onBeforeUnmount} from 'vue'
 import {ArrowRight,LogIn,X} from 'lucide-vue-next'
 import {endSession} from '../logout'
 const props=defineProps({authenticated:Boolean})
@@ -13,7 +13,7 @@ async function login(){
  }catch{error.value='We couldn’t open the login page. Please try again.';busy.value=false}
 }
 onMounted(()=>dialog.value?.showModal())
-onUnmounted(()=>dialog.value?.close())
+onBeforeUnmount(()=>dialog.value?.close())
 </script>
 <template>
 <dialog ref="dialog" class="existing-account-dialog" aria-labelledby="existing-account-title" aria-describedby="existing-account-description" @cancel.prevent="login">
