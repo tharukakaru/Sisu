@@ -176,6 +176,19 @@ def get_url(url):
         return response.read()
 
 
+def check_owner_entry(site):
+    from urllib.parse import urlsplit, parse_qs
+    url = 'https://' + site + '/campus'
+    print('Checking protected owner entry: ' + url, flush=True)
+    with urllib.request.urlopen(url, timeout=30) as response:
+        target = urlsplit(response.geturl())
+        html = response.read().decode()
+        if (response.status != 200 or target.scheme != 'https' or target.hostname != site
+                or target.path != '/login' or parse_qs(target.query).get('redirect-to') != ['/campus']
+                or 'sisu-owner-login' not in html):
+            raise RuntimeError('Owner entry did not reach the expected protected sign-in page')
+
+
 def health(manifest, catalog_before):
     entry = APP / 'institute_lms/www/campus.html'
     assets = re.findall(r'(?:src|href)="(/assets/institute_lms/portal/assets/index-[^"]+\.(?:js|css))"',
@@ -187,6 +200,9 @@ def health(manifest, catalog_before):
         catalog = response.get('message', {})
         if not isinstance(catalog, dict) or not isinstance(catalog.get('plans'), dict) or catalog.get('currency') != 'LKR':
             raise RuntimeError('API health check failed: ' + site)
+        if site == 'platform.sisuacademylk.com':
+            check_owner_entry(site)
+            continue
         html = get_url('https://' + site + '/campus').decode()
         if not all(asset in html for asset in assets):
             raise RuntimeError('Campus is not serving the new release: ' + site)

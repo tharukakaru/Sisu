@@ -225,8 +225,9 @@ class RecoveryTests(unittest.TestCase):
                 if url.endswith('/campus'): return html
                 return b'asset'
             manifest = {'required_assets': {'institute_lms/public/' + a.removeprefix('/assets/institute_lms/'): installer.sha(b'asset') for a in assets}}
-            with patch.object(installer, 'APP', app), patch.object(installer, 'get_url', side_effect=request):
+            with patch.object(installer, 'APP', app), patch.object(installer, 'get_url', side_effect=request), patch.object(installer, 'check_owner_entry') as owner:
                 installer.health(manifest, catalogue)
+                owner.assert_called_once_with('platform.sisuacademylk.com')
 
     def test_recovery_checks_before_workers_without_migrations(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -249,6 +250,21 @@ class RecoveryTests(unittest.TestCase):
                     with self.assertRaisesRegex(RuntimeError, 'unhealthy'):
                         installer.resume_checks(manifest, {'institute_lms/test.py': b'code'}, root)
                 self.assertFalse(any('start' in c for c in calls))
+
+
+class OwnerEntryTests(unittest.TestCase):
+    def test_expected_login_redirect_required(self):
+        response = Mock(status=200)
+        response.geturl.return_value = 'https://platform.sisuacademylk.com/login?redirect-to=/campus'
+        response.read.return_value = b'<body class="sisu-owner-login">'
+        context = Mock()
+        context.__enter__ = Mock(return_value=response)
+        context.__exit__ = Mock(return_value=False)
+        with patch.object(installer.urllib.request, 'urlopen', return_value=context):
+            installer.check_owner_entry('platform.sisuacademylk.com')
+            response.geturl.return_value = 'https://platform.sisuacademylk.com/error'
+            with self.assertRaises(RuntimeError):
+                installer.check_owner_entry('platform.sisuacademylk.com')
 
 
 if __name__ == '__main__':
