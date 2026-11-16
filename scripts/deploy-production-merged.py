@@ -61,6 +61,33 @@ finally:
 '''
 
 
+BACKUP_SITE = '''
+import frappe, sys, os
+from pathlib import Path
+bench_root = Path.cwd()
+os.chdir(bench_root / 'sites')
+frappe.init(site=sys.argv[1], sites_path=str(bench_root / 'sites'))
+frappe.connect()
+try:
+    from frappe.utils.backups import BackupGenerator
+    # Direct generator preserves historic backups: new_backup() first runs
+    # retention cleanup, which can fail on manually created directories.
+    conf = frappe.conf
+    backup = BackupGenerator(conf.db_name, conf.db_user, conf.db_password,
+        db_socket=conf.db_socket, db_host=conf.db_host, db_port=conf.db_port,
+        db_type=conf.db_type, backup_path=sys.argv[2], ignore_conf=True)
+    backup.get_backup(ignore_files=False, force=True)
+    for attr in ('backup_path_db', 'backup_path_files',
+                 'backup_path_private_files', 'backup_path_conf'):
+        path = Path(getattr(backup, attr))
+        if not path.is_file() or path.stat().st_size == 0:
+            raise RuntimeError('Required backup artifact missing: ' + attr)
+    print('Full database, uploads and configuration backup verified: ' + sys.argv[1])
+finally:
+    frappe.destroy()
+'''
+
+
 def sha(data):
     return hashlib.sha256(data).hexdigest()
 
@@ -184,7 +211,7 @@ def apply_release(manifest, payload, backup, log, uid, gid):
             folder.mkdir(mode=0o700)
             os.chown(folder, uid, gid)
             shutil.copy2(BENCH / 'sites' / site / 'site_config.json', folder / 'site_config.private.json')
-            run(bench(site, 'backup', '--with-files', '--ignore-backup-conf', '--backup-path', str(folder)), log, True)
+            run([str(BENCH / 'env/bin/python'), '-c', BACKUP_SITE, site, str(folder)], log, True)
             if not any(p.stat().st_size for p in folder.glob('*.sql*')):
                 raise RuntimeError('Database backup file missing: ' + site)
         shutil.copy2(BENCH / 'sites/common_site_config.json', backup / 'common_site_config.private.json')

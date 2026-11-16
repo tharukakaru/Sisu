@@ -9,7 +9,7 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 spec = importlib.util.spec_from_file_location('merged_installer', Path(__file__).resolve().parents[1] / 'scripts/deploy-production-merged.py')
 installer = importlib.util.module_from_spec(spec)
@@ -93,7 +93,7 @@ class ReleaseChecks(unittest.TestCase):
 
         def run(command, log, as_sisu=False):
             calls.append(command)
-            if 'backup' in command:
+            if installer.BACKUP_SITE in command:
                 if failure == 'backup':
                     raise RuntimeError('Backup failed')
                 (Path(command[-1]) / 'database.sql.gz').write_bytes(b'backup')
@@ -127,7 +127,7 @@ class ReleaseChecks(unittest.TestCase):
 
     def test_success_backs_up_before_migration_and_checks_health_before_workers(self):
         calls, health, _ = self.apply()
-        backup = next(i for i, c in enumerate(calls) if 'backup' in c)
+        backup = next(i for i, c in enumerate(calls) if installer.BACKUP_SITE in c)
         migrate = next(i for i, c in enumerate(calls) if 'migrate' in c)
         self.assertLess(backup, migrate)
         self.assertEqual(health, 1)
@@ -135,8 +135,6 @@ class ReleaseChecks(unittest.TestCase):
         self.assertEqual((self.root / 'backup/source' / self.name).read_bytes(), b'old = True\n')
 
 
-if __name__ == '__main__':
-    unittest.main()
 
 
 class FrappeProbeWorkingDirectory(unittest.TestCase):
@@ -162,3 +160,51 @@ class FrappeProbeWorkingDirectory(unittest.TestCase):
                         exec(probe, {})
             finally:
                 os.chdir(original)
+
+
+class PrivateBackupTests(unittest.TestCase):
+    def test_full_backup_preserves_existing_directory_and_requires_all_artifacts(self):
+        original = Path.cwd()
+        with tempfile.TemporaryDirectory() as folder:
+            bench = Path(folder)
+            historic = bench / 'sites/test/private/backups/pre-lkr50-migration'
+            historic.mkdir(parents=True)
+            marker = historic / 'keep.sql'
+            marker.write_bytes(b'original backup')
+            destination = bench / 'private-release'
+            destination.mkdir()
+            attrs = ('backup_path_db', 'backup_path_files', 'backup_path_private_files', 'backup_path_conf')
+            paths = {attr: str(destination / attr) for attr in attrs}
+            generator = Mock(**paths)
+            def create(**kwargs):
+                self.assertEqual(kwargs, {'ignore_files': False, 'force': True})
+                for path in paths.values():
+                    Path(path).write_bytes(b'backup')
+            generator.get_backup.side_effect = create
+            factory = Mock(return_value=generator)
+            cleanup = Mock(side_effect=AssertionError('Historical cleanup must not run'))
+            conf = SimpleNamespace(db_name='test', db_user='test', db_password='test',
+                db_socket=None, db_host='localhost', db_port=3306, db_type='mariadb')
+            frappe = SimpleNamespace(conf=conf, init=Mock(), connect=Mock(), destroy=Mock())
+            modules = {'frappe': frappe, 'frappe.utils': SimpleNamespace(),
+                'frappe.utils.backups': SimpleNamespace(BackupGenerator=factory,
+                    delete_temp_backups=cleanup, new_backup=cleanup)}
+            try:
+                os.chdir(bench)
+                with patch.dict(sys.modules, modules), patch.object(sys, 'argv', ['backup', 'test', str(destination)]):
+                    exec(installer.BACKUP_SITE, {})
+                    self.assertTrue(factory.call_args.kwargs['ignore_conf'])
+                    self.assertEqual(marker.read_bytes(), b'original backup')
+                    cleanup.assert_not_called()
+                    # Missing uploads must stop deployment even with a DB dump.
+                    Path(paths['backup_path_private_files']).unlink()
+                    generator.get_backup.side_effect = None
+                    os.chdir(bench)
+                    with self.assertRaisesRegex(RuntimeError, 'artifact missing'):
+                        exec(installer.BACKUP_SITE, {})
+            finally:
+                os.chdir(original)
+
+
+if __name__ == '__main__':
+    unittest.main()
