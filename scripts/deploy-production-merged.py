@@ -23,14 +23,16 @@ SITES = ('staging.sisuacademylk.com', 'sisuacademylk.com',
 SERVICES = ('frappe-bench-web:frappe-bench-frappe-web', 'frappe-bench-workers:')
 TEXT = {'.py', '.json', '.vue', '.js', '.mjs', '.css', '.html', '.toml', '.txt'}
 DATABASE_PREFLIGHT = '''
-import frappe, sys
+import frappe, sys, os
 from pathlib import Path
-frappe.init(site=sys.argv[1], sites_path=str(Path.cwd() / 'sites'))
+bench_root = Path.cwd()
+os.chdir(bench_root / 'sites')
+frappe.init(site=sys.argv[1], sites_path=str(bench_root / 'sites'))
 frappe.connect()
 try:
     if 'institute_lms' not in frappe.get_installed_apps():
         raise RuntimeError('Institute LMS is not installed on this site')
-    for line in Path('apps/institute_lms/institute_lms/patches.txt').read_text().splitlines():
+    for line in (bench_root / 'apps/institute_lms/institute_lms/patches.txt').read_text().splitlines():
         patch = line.strip()
         if patch and not patch.startswith(('#', '[')) and not frappe.db.exists('Patch Log', {'patch': patch}):
             raise RuntimeError('Historical patch is pending; review before this deployment: ' + patch)
@@ -41,9 +43,11 @@ finally:
     frappe.destroy()
 '''
 SCHEMA_CHECK = '''
-import frappe, sys
+import frappe, sys, os
 from pathlib import Path
-frappe.init(site=sys.argv[1], sites_path=str(Path.cwd() / 'sites'))
+bench_root = Path.cwd()
+os.chdir(bench_root / 'sites')
+frappe.init(site=sys.argv[1], sites_path=str(bench_root / 'sites'))
 frappe.connect()
 try:
     for name in ('IL Admin Invite', 'IL Subscription SMS'):

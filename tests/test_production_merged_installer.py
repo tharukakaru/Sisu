@@ -2,6 +2,9 @@
 import importlib.util
 import io
 import json
+import os
+import sys
+from types import SimpleNamespace
 import tarfile
 import tempfile
 import unittest
@@ -134,3 +137,28 @@ class ReleaseChecks(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class FrappeProbeWorkingDirectory(unittest.TestCase):
+    def test_both_probes_run_from_sites_directory(self):
+        original = Path.cwd()
+        with tempfile.TemporaryDirectory() as folder:
+            bench = Path(folder)
+            (bench / 'sites').mkdir()
+            patches = bench / 'apps/institute_lms/institute_lms/patches.txt'
+            patches.parent.mkdir(parents=True)
+            patches.write_text('')
+            def connect():
+                self.assertEqual(Path.cwd(), bench / 'sites')
+                self.assertEqual((Path.cwd() / '../logs').resolve(), bench / 'logs')
+            fake = SimpleNamespace(init=lambda **kw: None, connect=connect,
+                get_installed_apps=lambda: ['institute_lms'], destroy=lambda: None,
+                db=SimpleNamespace(sql=lambda *a: [], table_exists=lambda *a: True,
+                    has_column=lambda *a: True))
+            try:
+                for probe in (installer.DATABASE_PREFLIGHT, installer.SCHEMA_CHECK):
+                    os.chdir(bench)
+                    with patch.dict(sys.modules, {'frappe': fake}), patch.object(sys, 'argv', ['probe', 'test']):
+                        exec(probe, {})
+            finally:
+                os.chdir(original)
