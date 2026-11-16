@@ -23,9 +23,9 @@ def fingerprint(name, data):
 
 def main():
     commit = git('rev-parse', 'HEAD').decode().strip()
-    names = git('diff', '--name-only', '--diff-filter=AM', BASELINE, commit,
+    names = git('diff', '--no-renames', '--name-only', '--diff-filter=AM', BASELINE, commit,
                 '--', 'institute_lms', 'frontend', 'pyproject.toml').decode().splitlines()
-    deleted = git('diff', '--name-only', '--diff-filter=D', BASELINE, commit,
+    deleted = git('diff', '--no-renames', '--name-only', '--diff-filter=D', BASELINE, commit,
                   '--', 'institute_lms', 'frontend', 'pyproject.toml').decode().splitlines()
     if any(not p.startswith('institute_lms/public/portal/') for p in deleted):
         raise RuntimeError('Source deletion needs an explicit migration plan')
