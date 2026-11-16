@@ -7,7 +7,7 @@ const monthlyPricing = {
     "Open Subscription to view your plan and monthly price. Teachers and institutes can choose View plans to see available packages.",
     "Student LMS access is included; class tuition is separate. Independent teachers manage their own subscription. Institute administrators manage the institute subscription.",
     "Choose Manage under Payment details to update your invoice email or payment preference. Saving a preference does not charge you.",
-    "Your invoices and receipts appear in Invoices & receipts. Download a document, then choose Print → Save as PDF for a PDF copy.",
+    "Your invoices and receipts appear in Invoices & receipts. Choose Download receipt to save your paid subscription receipt as a PDF.",
     "Renewals follow your monthly billing anniversary. A 31 January cycle renews on the last day of February, then 31 March.",
     "Package changes during a paid period apply at renewal. Cancelling keeps your current access until its end date.",
     "Your course duration does not change the monthly SISU subscription price. Any class tuition is separate.",
