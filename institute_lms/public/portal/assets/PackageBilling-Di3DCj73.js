@@ -1,0 +1,1 @@
+import{a,x as i,S as o}from"./index-CZnkpFd3.js";const m={__name:"PackageBilling",emits:["changed"],setup(s,{emit:n}){const t=n;return(r,e)=>(a(),i(o,{onChanged:e[0]||(e[0]=c=>t("changed"))}))}};export{m as default};

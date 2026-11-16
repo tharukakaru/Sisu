@@ -135,6 +135,7 @@ def guard_request():
     method=frappe.form_dict.get('cmd') or (path.split('/method/',1)[1].rstrip('/') if '/method/' in path else '')
     module=method.split('.')[1] if method.startswith('institute_lms.') else ''
     if method=='institute_lms.plan_catalog.public_catalog':return  # Public product catalogue, no account data.
+    if method in ('institute_lms.invitations.list_invitations','institute_lms.invitations.respond'):return  # Own-email invitations retain explicit server identity and membership checks.
     if method in ('institute_lms.usage_billing.status','institute_lms.usage_billing.document','institute_lms.usage_billing.request_activation'):return  # Own-account invoice recovery must remain usable after expiry.
     if method in ('institute_lms.teacher_workspace.open_workspace','institute_lms.teacher_workspace.summary','institute_lms.teacher_workspace.cancel_request','institute_lms.api.bootstrap','institute_lms.full_api.capabilities','institute_lms.classroom_handover.institute_plan'):return  # Authenticated, scoped shell and subscription recovery.
     if method in ('institute_lms.learning_preferences.get_preferences','institute_lms.learning_preferences.save_preferences'):return  # User-owned goals, never institute data.

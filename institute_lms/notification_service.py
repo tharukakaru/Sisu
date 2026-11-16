@@ -9,7 +9,7 @@ EVENTS=('enrollment.requested','enrollment.completed','whatsapp.payment_approved
         'quiz.available','quiz.result','payment.successful','payment.failed','subscription.renewed',
         'subscription.expiry','course.expiry','certificate.issued','lesson.refunded','lesson.payment',
         'live.changed','recording.ready','recording.published','paper.ready','ai.low','premium.offer','premium.receipt','programme.assigned')
-EVENTS=(*EVENTS,'teacher.membership.requested')
+EVENTS=(*EVENTS,'teacher.membership.requested','teacher.invitation.responded')
 CHANNELS=('IN_APP','EMAIL','SMS','WHATSAPP','PUSH')
 LABELS={'IN_APP':'IN_APP','EMAIL':'Email','SMS':'SMS','WHATSAPP':'WhatsApp','PUSH':'PUSH'}
 
@@ -107,6 +107,11 @@ def dispatch_adapters():
     from .providers import sms,push
     with frappe.cache.lock('il_channel_dispatch',timeout=300,blocking_timeout=1):
         for name in frappe.get_all('IL Notification',filters={'channel':['in',['SMS','PUSH']],'status':'Queued'},pluck='name',limit_page_length=20):
+            event=frappe.db.get_value('IL Notification',name,'event')
+            if frappe.db.get_value('IL Notification Event',event,'event_type')=='teacher.invitation.responded':
+                from .invitation_notifications import deliver_sms
+                deliver_sms(name)
+                continue
             frappe.db.sql('SELECT name FROM `tabIL Notification` WHERE name=%s FOR UPDATE',(name,))
             d=frappe.get_doc('IL Notification',name,for_update=True);m=frappe.get_doc('IL Member',d.recipient)
             if d.status!='Queued':continue

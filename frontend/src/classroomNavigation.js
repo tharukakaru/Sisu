@@ -6,6 +6,7 @@ export function classroomNavigation(role, {instituteTeacher=false,unifiedTeacher
     ...(role==='Student'?[{id:'study',icon:'Coffee'}]:[]),
     ...(role==='Admin'?[{id:'team',icon:'Users'},{id:'people',icon:'Users'}]:[]),
     {id:'connections',icon:'Search'},
+    ...(role==='Teacher'?[{id:'invitations',icon:'Mail'}]:[]),
     ...(role==='Teacher'&&unifiedTeacher?[{id:'join-institute',icon:'Building2'}]:[]),
     ...(!instituteTeacher?[{id:'payments',icon:'CreditCard'}]:[]),
     ...(role!=='Student'?[{id:'subscription',icon:'Receipt'}]:[]),

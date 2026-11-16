@@ -88,14 +88,16 @@ test('workspace dropdown keeps pending membership locked, switches accepted cont
  }finally{app?.unmount();Object.assign(globalThis,previous)}
 })
 
-test('header reflects personal paid plan, institute name, and urgent trial time',async()=>{
+test('header reflects the selected workspace plan and urgent trial time',async()=>{
  const previous={document:globalThis.document};globalThis.document={addEventListener(){},removeEventListener(){}};let app
  try{
   const Header=await component('TeacherTrialCountdown')
   for(const [context,expected,urgent] of [
    [{kind:'Personal',state:'Trial',available:true,remaining_ms:3600000},'Trial ends soon',true],
    [{kind:'Personal',state:'Active',available:true,plan:'Individual'},'SISU Individual',false],
-   [{kind:'Institute',state:'Active',available:true,title:'Test Institute'},'Test Institute',false],
+   [{kind:'Institute',state:'Active',available:true,title:'Test Institute',plan:'Gold'},'SISU Gold',false],
+   [{kind:'Institute',state:'Expired',available:false,title:'Test Institute',plan:'Silver'},'SISU Silver',true],
+   [{kind:'Institute',state:'Plan required',available:false,title:'Test Institute'},'No plan selected',true],
    [{kind:'Personal',state:'Expired',available:false},'Subscription required',true]
   ]){
    const root={children:[]};app=renderer.createApp(Header,{context});app.mount(root);await nextTick()

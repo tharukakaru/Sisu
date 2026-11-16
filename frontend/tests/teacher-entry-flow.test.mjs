@@ -30,7 +30,7 @@ async function compile(name,output,realGate=false){
       if(['./teacherEntryPath','./existingAccount'].includes(path))return line.replace(path,path+'.js')
       if(path==='./ProviderAccessGate.vue'&&realGate)return `import ProviderAccessGate from './.teacher-gate-flow-test.mjs'`
       if(path==='./PaymentRequired.vue')return `import PaymentRequired from './.payment-required-flow-test.mjs'`
-      if(path==='./client')return 'const request=(...args)=>globalThis.__teacherFlowRequest(...args)'
+      if(path==='./client')return 'const request=(...args)=>globalThis.__teacherFlowRequest(...args); const csrf=()=>"test-csrf"; const decode=async response=>{if(!response.ok)throw Error("Request failed");return response.json()}'
       if(path==='../asyncPage')return `const defineAsyncComponent=loader=>stub(loader.toString().match(/import\\(['"](.+?)['"]\\)/)[1].split('/').pop().replace('.vue',''))`
       if(binding.startsWith('{'))return binding.slice(1,-1).split(',').map(n=>`const ${n.trim()}=stub('${n.trim()}')`).join('\n')
       return `const ${binding}=stub('${binding}')`
@@ -71,7 +71,15 @@ test('teacher sign-in routes preserve access gates, institute actions and signup
       assert.equal(button(pendingRoot,'Open billing'),undefined,'Do not flash a false payment warning')
       assert.equal(marker(pendingRoot,'App'),undefined)
       finishBilling({account:{workspace_available:paid}});holdBilling=false;await flush()
-      assert.ok(paid?marker(pendingRoot,'App'):marker(pendingRoot,'SubscriptionBilling'))
+      assert.ok(paid?marker(pendingRoot,'App'):role==='Admin'?marker(pendingRoot,'InstituteSetupLayout'):marker(pendingRoot,'SubscriptionBilling'))
+      if(role==='Admin'&&!paid){
+        const billing=marker(pendingRoot,'SubscriptionBilling')
+        assert.ok(billing,'Institute plan selection opens directly in the setup page')
+        assert.equal(marker(pendingRoot,'App'),undefined,'Unpaid institute remains outside the dashboard')
+        assert.ok(Object.hasOwn(billing.props,'onboarding'))
+        available=true;await billing.props.onChanged();await flush()
+        assert.ok(marker(pendingRoot,'App'),'Verified billing refresh unlocks the institute workspace')
+      }
       app.unmount();app=null
     }
     for(const path of ['individual','institute'])for(const paid of [true,false]){
@@ -142,12 +150,12 @@ test('teacher sign-in routes preserve access gates, institute actions and signup
     app.unmount();app=null
     values.clear();session={...teacher,role:'Admin',member:{role:'Admin'}};available=false
     const root={children:[]};app=renderer.createApp(Portal);app.mount(root);await flush()
-    assert.ok(marker(root,'SubscriptionBilling'))
-    billingError=true;button(root,'Check again').props.onClick();await flush()
-    assert.ok(nodes(root).some(n=>n.props?.role==='alert'&&n.text==='Unable to check billing. Try again.'))
+    assert.ok(marker(root,'InstituteSetupLayout'))
+    billingError=true;await marker(root,'SubscriptionBilling').props.onChanged();await flush()
+    assert.ok(nodes(root).some(n=>n.props?.role==='alert'&&nodes(n).some(child=>child.text==='Unable to check billing. Try again.')))
     assert.equal(marker(root,'App'),undefined)
-    assert.ok(marker(root,'SubscriptionBilling'))
-    billingError=false;available=true;button(root,'Check again').props.onClick();await flush()
+    assert.ok(marker(root,'SubscriptionBilling'),'Billing remains accessible after an access-check failure')
+    billingError=false;available=true;button(root,'Try again').props.onClick();await flush()
     assert.ok(marker(root,'App'))
     app.unmount();app=null
     unified=true;values.clear();session={authenticated:false}
@@ -172,6 +180,13 @@ test('teacher sign-in routes preserve access gates, institute actions and signup
       available=true;app.unmount();app=null
     }
     unified=false
+    globalThis.location.search='?checkout_invoice=institute-draft'
+    session=teacher;available=true
+    const checkoutRoot={children:[]};app=renderer.createApp(Portal);app.mount(checkoutRoot);await flush()
+    assert.ok(marker(checkoutRoot,'CheckoutEntry'),'A checkout link must check invoice ownership before opening any dashboard')
+    assert.equal(marker(checkoutRoot,'CheckoutEntry').props.invoice,'institute-draft')
+    assert.equal(marker(checkoutRoot,'App'),undefined,'An existing teacher session cannot flash the teacher dashboard for an institute checkout')
+    app.unmount();app=null
     globalThis.location.search='?verified_signup=1'
     for(const existing of [true,false]){
       holdGoogle=true;
@@ -188,3 +203,35 @@ test('teacher sign-in routes preserve access gates, institute actions and signup
   }finally{app?.unmount();Object.assign(globalThis,previous);await Promise.all([unlink(output),unlink(gateOutput),unlink(paymentOutput)])}
 })
 
+
+
+test('checkout entry blocks another account, preserves the invoice through login and never starts a charge',async()=>{
+  const output=new URL('../src/native/.checkout-entry-flow-test.mjs',import.meta.url)
+  const previous={location:globalThis.location,fetch:globalThis.fetch,__teacherFlowRequest:globalThis.__teacherFlowRequest}
+  let app,own=false,fail=false,logoutOK=false,redirect=''
+  const calls=[]
+  globalThis.location={assign:url=>redirect=url}
+  globalThis.fetch=async(url,options)=>{calls.push([url,options]);return {ok:logoutOK,json:async()=>({})}}
+  globalThis.__teacherFlowRequest=async(module,method)=>{
+    assert.equal(module,'account_billing');assert.equal(method,'status')
+    if(fail)throw Error('offline')
+    return {invoices:own?[{name:'institute-draft',status:'Draft'}]:[{name:'teacher-draft',status:'Draft'}]}
+  }
+  try{
+    await compile('CheckoutEntry',output)
+    const {default:Entry}=await import(output.href)
+    const root={children:[]};app=renderer.createApp(Entry,{invoice:'institute-draft',user:'teacher@example.invalid'});app.mount(root);await flush()
+    assert.equal(marker(root,'SubscriptionBilling'),undefined)
+    assert.ok(button(root,'Sign in with another account'))
+    await button(root,'Sign in with another account').props.onClick();await flush()
+    assert.equal(redirect,'','Failed logout must not open login in the old session')
+    logoutOK=true;await button(root,'Sign in with another account').props.onClick();await flush()
+    assert.equal(new URL('https://checkout.localhost'+redirect).searchParams.get('redirect-to'),'/campus?checkout_invoice=institute-draft#subscription')
+    assert.equal(calls[0][0],'/api/method/logout');assert.equal(calls[0][1].method,'POST')
+    app.unmount();app=null
+    fail=true;const retryRoot={children:[]};app=renderer.createApp(Entry,{invoice:'institute-draft',user:'institute@example.invalid'});app.mount(retryRoot);await flush()
+    assert.equal(marker(retryRoot,'SubscriptionBilling'),undefined,'API failure stays closed')
+    fail=false;own=true;await button(retryRoot,'Check again').props.onClick();await flush()
+    assert.ok(marker(retryRoot,'SubscriptionBilling'),'Matching account opens its subscription checkout')
+  }finally{app?.unmount();Object.assign(globalThis,previous);await unlink(output)}
+})

@@ -2,6 +2,7 @@ from types import SimpleNamespace as NS
 from unittest import TestCase
 from unittest.mock import MagicMock
 from test_upload_provisioning import function
+from institute_lms.membership_write import authorized_insert, target_for
 
 
 class CampusTeachers(TestCase):
@@ -13,7 +14,7 @@ class CampusTeachers(TestCase):
         def throw(message,exc): raise exc(message)
         self.f.throw = throw
         self.enabled = MagicMock(return_value=True)
-        self.sync = function('campus_teachers','sync', {'frappe':self.f,'enabled':self.enabled,'make_autoname':lambda pattern:'TC-TEST-0001'})
+        self.sync = function('campus_teachers','sync', {'frappe':self.f,'enabled':self.enabled,'authorized_insert':authorized_insert,'make_autoname':lambda pattern:'TC-TEST-0001'})
         self.relationship = NS(user='teacher')
 
     def test_approval_creates_only_target_teacher_membership(self):
@@ -21,6 +22,7 @@ class CampusTeachers(TestCase):
         data = self.f.get_doc.call_args.args[0]
         self.assertEqual((data['institute'],data['user'],data['role']),('target','teacher','Teacher'))
         self.member.insert.assert_called_once_with(ignore_permissions=True,set_name='TC-TEST-0001')
+        self.assertIsNone(target_for(self.member))
         self.f.db.commit.assert_not_called()
 
     def test_removal_deactivates_existing_membership(self):
