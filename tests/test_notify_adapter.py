@@ -23,7 +23,7 @@ class NotifyAdapter(unittest.TestCase):
         value=self.m.send('+94771234567','Test')
         self.assertTrue(value['accepted']);self.assertIsNone(value['provider_id'])
         self.assertNotIn('delivered',value)
-        self.assertEqual(self.post.call_args.kwargs['data']['message'],'SISU: Test')
+        self.assertEqual(self.post.call_args.kwargs['data']['message'],'SISU\nTest')
 
     def test_unsupported_destination_never_calls_provider(self):
         with self.assertRaises(ValueError): self.m.send('+14155551234','Test')

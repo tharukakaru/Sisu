@@ -20,7 +20,7 @@ onUnmounted(()=>dialog.value?.close())
   <button class="existing-close" type="button" aria-label="Close and go to login" :disabled="busy" @click="login"><X :size="22" aria-hidden="true"/></button>
   <LogIn class="existing-symbol" :size="40" :stroke-width="1.6" aria-hidden="true"/>
   <h2 id="existing-account-title">Account already exists</h2>
-  <p id="existing-account-description">You already have a SISU account with this email. Log in to continue to your student campus.</p>
+  <p id="existing-account-description">You already have a SISU account with this email. Log in to continue to your SISU workspace.</p>
   <p v-if="error" role="alert" class="existing-error">{{error}}</p>
   <button class="existing-login" type="button" :disabled="busy" @click="login" autofocus>{{busy?'Opening login…':'Log in'}}<ArrowRight v-if="!busy" :size="18" aria-hidden="true"/></button>
 </dialog>

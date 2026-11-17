@@ -27,7 +27,7 @@ class NotifySandbox(unittest.TestCase):
             self.assertTrue(result['accepted']);args=post.call_args
             self.assertEqual(args.args[0],'https://app.notify.lk/api/v1/send')
             self.assertFalse(args.kwargs['allow_redirects']);self.assertNotIn('test_phone',args.kwargs['data'])
-            self.assertTrue(args.kwargs['data']['message'].startswith('SISU:'))
+        self.assertTrue(args.kwargs['data']['message'].startswith('SISU\n'))
     def test_error_body_not_disclosed(self):
         response=MagicMock(ok=False);response.json.return_value={'status':'error','data':'secret-value'}
         with patch.object(self.adapter.requests,'post',return_value=response):

@@ -6,6 +6,7 @@ access. Delegates with access_level "Admin" can run the platform but can never
 create, promote or remove administrators.
 """
 import frappe
+from .message_templates import sendmail
 
 
 def primary_email():
@@ -215,6 +216,6 @@ def queue_setup_email(user):
     validate = getattr(user, 'validate_reset_password', None)
     if callable(validate): validate()
     link = reset(send_email=False).replace('/update-password?', '/sisu_password?', 1)
-    frappe.sendmail(recipients=[user.name], subject='Your SISU Platform owner access',
+    sendmail(frappe, recipients=[user.name], subject='Your SISU Platform owner access',
         message='<p>You have been invited to manage SISU.</p><p><a href="'+escape(link, quote=True)+'">Set your password and sign in</a></p>',
         delayed=True, redact_message_after_send=True)

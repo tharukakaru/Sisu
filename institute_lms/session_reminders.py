@@ -46,8 +46,8 @@ def queue(meeting, now=None):
             origin = str(frappe.conf.get('il_session_reminder_origin') or frappe.conf.get('host_name') or get_url()).rstrip('/')
             link = origin + '/campus?' + urlencode({'classroom':room.name,'institute':room.institute})
             start = get_datetime(meeting.starts_at)
-            body = (f'SISU: {meeting.title[:90]} starts at {start:%I:%M %p} on {start:%d %b} '
-                    f'(Sri Lanka time). Join your class: {link}')
+            body = (f'Class starts soon\n{meeting.title[:90]}\n'
+                    f'{start:%d %b, %I:%M %p} (Sri Lanka time)\nJoin your class: {link}')
             row = frappe.get_doc(dict(doctype=DT, reminder_key=key, session=meeting.name,
                 classroom=room.name, institute=room.institute, student=student, starts_at=start,
                 phone=phone, body=body, status='Queued')).insert(ignore_permissions=True)

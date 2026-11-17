@@ -2,6 +2,7 @@
 import hashlib
 from html import escape
 import frappe
+from .message_templates import sendmail
 from frappe.utils import now_datetime
 
 EVENT = 'teacher.invitation.responded'
@@ -23,7 +24,7 @@ def queue_response(invitation,teacher):
                 event_key=key,channel=channel,body=body,status='Queued',attempts=0,next_attempt=now_datetime())).insert(ignore_permissions=True)
             if channel=='Email':
                 if frappe.db.get_value('User',member.user,'enabled'):
-                    frappe.sendmail(recipients=[member.user],subject='Teacher invitation '+verb,
+                    sendmail(frappe, recipients=[member.user],subject='Teacher invitation '+verb,
                         message='<p>'+escape(body)+'</p><p><a href="'+escape(invitation_origin()+'/campus#team',quote=True)+'">Open teaching team</a></p>',
                         delayed=True,reference_doctype='IL Notification',reference_name=row.name)
                     row.status='Accepted';row.save(ignore_permissions=True)

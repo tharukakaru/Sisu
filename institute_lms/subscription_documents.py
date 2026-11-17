@@ -1,9 +1,23 @@
 """Retryable, payment-only PDF emails; queue creation and marker commit together."""
 from html import escape
 import frappe
+from .message_templates import sendmail, paragraph, details
 from .subscription_receipt import render, date_label
 
 DT = 'IL Account Invoice'
+
+
+def payment_body(bill):
+    return (paragraph(f'Hello {bill.billed_to},')
+            + '<div style="padding:22px;background:#f3edf9;border-radius:12px;margin:22px 0">'
+            + '<p style="margin:0 0 6px;color:#655871;font-size:13px">PAYMENT CONFIRMED</p>'
+            + '<p style="margin:0;font-size:32px;font-weight:700;color:#572b91">'
+            + escape(str(bill.currency)) + f' {int(bill.amount_minor)/100:,.2f}</p></div>'
+            + paragraph('Thank you. Your subscription payment has been verified.')
+            + details([('Plan', bill.plan), ('Subscription starts', date_label(bill.period_start)),
+                       ('Subscription ends', date_label(bill.period_end)), ('Paid invoice', bill.receipt_number)])
+            + paragraph('Your paid invoice is attached as a PDF. You can also download it from Subscription in your SISU account.')
+            + paragraph('No automatic renewal charge has been set up.'))
 
 
 def deliver(invoice):
@@ -13,18 +27,11 @@ def deliver(invoice):
     if not bill.billing_email:
         return
     pdf = render(bill)
-    e = lambda value: escape(str(value or ''))
-    message = f'''<div style="font-family:Arial,sans-serif;color:#30273e;max-width:600px">
-    <h2 style="color:#572b91">Your SISU subscription payment is confirmed</h2>
-    <p>Hello {e(bill.billed_to)},</p>
-    <p>Thank you for your payment of <strong>{e(bill.currency)} {int(bill.amount_minor)/100:,.2f}</strong>
-    for the <strong>{e(bill.plan)}</strong> plan.</p>
-    <p>Your subscription covers {e(date_label(bill.period_start))} to {e(date_label(bill.period_end))}.</p>
-    <p>Your paid invoice <strong>{e(bill.receipt_number)}</strong> is attached as a PDF.
-    You can also download it from Subscription in your SISU account.</p>
-    <p>No automatic renewal charge has been set up.</p><p>Thank you,<br>SISU Academy</p></div>'''
-    queued = frappe.sendmail(recipients=[bill.billing_email],
+    message = payment_body(bill)
+    queued = sendmail(frappe, recipients=[bill.billing_email],
                     subject=f'Your SISU paid invoice - {bill.receipt_number}',
+                    title='Your payment is confirmed', label='SUBSCRIPTION & BILLING',
+                    preheader='Payment verified. Your paid invoice is attached as a PDF.',
                     # Frappe sends after the queue transaction commits. This worker
                     # must not wait for the site's periodic email flush to run.
                     message=message, delayed=True, now=True,

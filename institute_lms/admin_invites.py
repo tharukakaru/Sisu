@@ -7,6 +7,7 @@ welcome email is sent. The link stops working once accepted, when a newer invite
 replaces it, when it is cancelled, or 24 hours after it was sent.
 Only the token's SHA-256 is stored; the code is kept as an HMAC in cache.
 """
+from .message_templates import verification_sms
 import hashlib
 import hmac
 import re
@@ -15,6 +16,7 @@ import time
 from html import escape
 
 import frappe
+from .message_templates import sendmail
 from frappe.utils import add_to_date, get_datetime, now_datetime
 
 from .owner_access import LEVELS, primary_email, require_manager, can_manage
@@ -89,7 +91,7 @@ def invite(full_name, email, access_level='Admin'):
 
     link = f'{base_url()}/admin-invite?token={token}'
     role = 'Administrator (full authority)' if access_level == 'Administrator' else 'Admin'
-    frappe.sendmail(
+    sendmail(frappe,
         recipients=[email], subject='You are invited to manage SISU LMS', now=True,
         message=(f'<p>Hello {escape(full_name)},</p>'
                  f'<p>You have been invited to join the SISU LMS platform as <strong>{escape(role)}</strong>.</p>'
@@ -196,7 +198,7 @@ def send_code(token, email, phone):
     frappe.cache.set_value(key + ':last', time.time(), expires_in_sec=60)
     code = f'{secrets.randbelow(1000000):06d}'
     from .providers import sms
-    sms(phone, f'Your SISU admin verification code is {code}. It expires in 10 minutes.')
+    sms(phone, verification_sms(code, purpose='Admin verification'))
     frappe.cache.set_value(key, {'phone': phone, 'digest': code_digest(doc, phone, code), 'created': time.time(),
                                  'attempts': 0}, expires_in_sec=CODE_SECONDS)
     return {'sent': True, 'phone_hint': phone[:3] + '•' * (len(phone) - 6) + phone[-3:], 'expires_in_seconds': CODE_SECONDS}
@@ -312,7 +314,7 @@ def send_welcome(doc):
     role = 'Administrator (full authority)' if doc.access_level == 'Administrator' else 'Admin'
     link = base_url() + '/login?redirect-to=/campus'
     try:
-        frappe.sendmail(
+        sendmail(frappe,
             recipients=[doc.email], subject=f'Welcome to SISU LMS, {doc.full_name}', now=True,
             message=(f'<p>Welcome {escape(doc.full_name)},</p>'
                      f'<p>Your SISU LMS admin account is ready. You can now monitor and manage the platform as '

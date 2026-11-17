@@ -3,6 +3,7 @@
 Enable only with il_admin_sms_mfa_enabled on the control-plane site. No OTP or
 provider credentials are returned to the browser. Existing sessions are retained.
 """
+from .message_templates import verification_sms
 import hashlib
 import hmac
 import re
@@ -66,7 +67,7 @@ def send_token(otpsecret, token=None, phone_no=None):
         cooldown()
     otp = pyotp.HOTP(otpsecret).at(int(token))
     from .notify_platform import send
-    result = send(phone_no, f'Your admin sign-in code is {otp}. It expires in 5 minutes. Never share this code.')
+    result = send(phone_no, verification_sms(otp, purpose='Admin sign-in', minutes=5))
     if not result or not result.get('accepted'):
         fail('SMS delivery could not be confirmed. Please wait before trying again.')
     frappe.cache.set(proof_key(user, otpsecret, otp), user, ex=TTL)
