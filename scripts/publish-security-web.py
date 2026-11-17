@@ -32,6 +32,8 @@ def main():
  shutil.copy2(CONFIG,backup/'nginx.conf');(backup/'site_config.private.json').write_bytes(original)
  release=Path('/var/www/sisu-marketing-releases')/('security-5938b1a-'+stamp)
  release.mkdir(mode=0o755)
+ # The private-backup umask also affects mkdir; explicitly open the public directory.
+ release.chmod(0o755)
  with tarfile.open(ARCHIVE) as t:
   seen=set()
   for m in t.getmembers():
@@ -44,6 +46,11 @@ def main():
     parent.chmod(0o755)
  for name in ('index.html','app.js','theme.css','config.js'):
   if not (release/name).is_file():raise RuntimeError('Required marketing file missing')
+ # Verify the actual nginx worker can read the release before switching routing.
+ nginx_user=re.search(r'^\s*user\s+([^;\s]+)',Path('/etc/nginx/nginx.conf').read_text(),re.M)
+ if not nginx_user:raise RuntimeError('Cannot identify nginx worker user')
+ for name in seen:
+  subprocess.run(['sudo','-u',nginx_user.group(1),'--','test','-r',str(release/name)],check=True)
  user=pwd.getpwnam('sisu')
  def cache():
   subprocess.run(['sudo','-H','-u','sisu','--','/usr/local/bin/bench','--site',SITE,'clear-cache'],cwd=BENCH,check=True)
@@ -59,6 +66,7 @@ def main():
   for attempt in range(6):
    try:
     for path,file in (('/', 'index.html'),('/marketing/app.js','app.js'),('/marketing/theme.css','theme.css')):
+     print('Checking marketing URL: '+path,flush=True)
      with urllib.request.urlopen('https://www.sisuacademylk.com'+path,timeout=20) as r:data=r.read()
      if data!=(release/file).read_bytes():raise RuntimeError('Published marketing content mismatch')
     break
