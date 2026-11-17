@@ -4,7 +4,7 @@ from PIL import Image, ImageOps
 import json
 ROOT = Path(__file__).resolve().parents[1] / 'marketing' / 'assets'
 SOURCES = {
- 'landing-hero': ('Student_with_Laptop_on_Lavender_40e563cb.jpg', [640, 960, 1376]),
+ 'landing-hero-clean': ('landing-hero-clean.png', [640, 960, 1376]),
  'learning-together': ('student-learning-together.png', [480, 768, 1024]),
  'teacher-workspace': ('sunlit-teacher-workspace.png', [640, 1024, 1672]),
  'mobile-phones': ('sisu-three-phones.png', [640, 1024, 1536]),
