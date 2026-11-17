@@ -9,7 +9,7 @@ import tarfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BASELINE = '25a89d3'
+BASELINE = '61498d6'
 TEXT = {'.py', '.json', '.vue', '.js', '.mjs', '.css', '.html', '.toml', '.txt'}
 
 
@@ -30,7 +30,7 @@ def main():
     if any(not p.startswith('institute_lms/public/portal/') for p in deleted):
         raise RuntimeError('Source deletion needs an explicit migration plan')
     names = [p for p in names if not p.startswith('frontend/tests/')]
-    # Package changes since the verified live student-dialog fix. The installer
+    # Package changes since the confirmed live merged release. The installer
     # checks every unchanged asset before modifying the server.
     assets = git('ls-tree', '-r', '--name-only', commit, '--', 'institute_lms/public/portal').decode().splitlines()
     names = sorted(set(names))

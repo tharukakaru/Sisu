@@ -17,7 +17,7 @@ from pathlib import Path, PurePosixPath
 BENCH = Path('/home/sisu/frappe-bench')
 APP = BENCH / 'apps/institute_lms'
 ARCHIVE = Path('/tmp/sisu-production-merged.tgz')
-MANIFEST_DIGEST = 'aac7fd39e8e8453061b7afade5262e42abe45a1bd440164e32ad4c553289b9e9'
+MANIFEST_DIGEST = 'e54ae127ce13bcaeee23881ebc65afb8f404899a6547ad61f00fad41b18bb07f'
 SITES = ('staging.sisuacademylk.com', 'sisuacademylk.com',
          'teen.sisuacademylk.com', 'platform.sisuacademylk.com')
 SERVICES = ('frappe-bench-web:frappe-bench-frappe-web', 'frappe-bench-workers:')
@@ -50,7 +50,7 @@ os.chdir(bench_root / 'sites')
 frappe.init(site=sys.argv[1], sites_path=str(bench_root / 'sites'))
 frappe.connect()
 try:
-    for name in ('IL Admin Invite', 'IL Subscription SMS'):
+    for name in ('IL Admin Invite', 'IL Subscription SMS', 'IL Session Reminder', 'IL Renewal Notice', 'IL Student Count Bill', 'IL Student Count Policy'):
         if not frappe.db.table_exists(name):
             raise RuntimeError('Required table missing: ' + name)
     for doctype, column in (('IL Owner Access', 'access_level'), ('IL Account Invoice', 'receipt_email_status')):
