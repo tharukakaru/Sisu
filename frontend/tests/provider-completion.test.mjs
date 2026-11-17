@@ -32,9 +32,12 @@ test('workspace failure keeps the success state and allows retry or sign in',asy
  await h.login();assert.deepEqual(h.redirects,['/login?redirect-to=/campus'])
 })
 
-test('unified teacher completion preserves the success popup and opens the new workspace service',async()=>{
+test('unified teacher completion continues immediately without the legacy popup',async()=>{
  const h=harness({onboarding_kind:'Teacher',teaching_path:'institute'},false,true)
- h.verified.value=true;await h.completed();assert.equal(h.dialog.open,true)
- assert.equal(h.calls.length,0)
- await h.dashboard();assert.equal(h.calls[0][0],'teacher_workspace');assert.deepEqual(h.events,['completed'])
+ h.verified.value=true;await h.completed()
+ assert.equal(h.dialog.open,false);assert.deepEqual(h.events,['completed'])
+ assert.equal(h.calls.length,0);assert.equal(h.redirects.length,0)
+ const returning=harness({onboarding_kind:'Teacher',provider_workspace_pending:true},false,true)
+ await returning.mounted[0]()
+ assert.equal(returning.calls[0][0],'teacher_workspace');assert.deepEqual(returning.events,['completed'])
 })
