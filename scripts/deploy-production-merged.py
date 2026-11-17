@@ -375,7 +375,7 @@ def main():
     with (backup / 'deployment.log').open('w') as log:
         try:
             # Install only the new declared dependency, before any downtime.
-            run([str(BENCH / 'env/bin/python'), '-m', 'pip', 'install', 'pyotp==2.11.2'], log, True)
+            run([str(BENCH / 'env/bin/python'), '-m', 'pip', 'install', 'pyotp==2.9.0'], log, True)
             run([str(BENCH / 'env/bin/python'), '-c', 'import pyotp, reportlab, pypdf, cryptography'], log, True)
             run(['supervisorctl', 'status', *SERVICES], log)
             for command in ('backup', 'migrate', 'set-maintenance-mode'):

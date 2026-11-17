@@ -90,7 +90,7 @@ def main():
                 for parent in dst.parents:
                     if parent==APP: break
                     os.chown(parent,account.pw_uid,account.pw_gid);parent.chmod(0o755)
-            run([str(ROOT/'env/bin/python'),'-m','pip','install','pyotp==2.11.2'],log)
+            run([str(ROOT/'env/bin/python'),'-m','pip','install','pyotp==2.9.0'],log)
             run([str(ROOT/'env/bin/python'),'-c','import pyotp, reportlab, pypdf, cryptography'],log)
             run(bench('migrate'),log)
             run([str(ROOT/'env/bin/python'),'-m','pip','check'],log)
