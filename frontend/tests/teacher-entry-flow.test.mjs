@@ -25,8 +25,9 @@ async function compile(name,output,realGate=false){
   const script=compileScript(descriptor,{id:name})
   const template=compileTemplate({source:descriptor.template.content,filename:file.pathname,id:name,compilerOptions:{bindingMetadata:script.bindings}})
   let code=script.content.replace('export default','const component =')
+    .replace("const ProviderAccessGate=defineAsyncComponent(()=>import('./ProviderAccessGate.vue'))",realGate?"const ProviderAccessGate=RealProviderAccessGate":"const ProviderAccessGate=stub('ProviderAccessGate')")
     .replace(/^import (.+?) from ['"](.+?)['"];?$/gm,(line,binding,path)=>{
-      if(path==='vue')return line
+      if(path==='vue'||path==='./.teacher-gate-flow-test.mjs')return line
       if(['./teacherEntryPath','./existingAccount'].includes(path))return line.replace(path,path+'.js')
       if(path==='./ProviderAccessGate.vue'&&realGate)return `import ProviderAccessGate from './.teacher-gate-flow-test.mjs'`
       if(path==='./PaymentRequired.vue')return `import PaymentRequired from './.payment-required-flow-test.mjs'`
@@ -35,7 +36,7 @@ async function compile(name,output,realGate=false){
       if(binding.startsWith('{'))return binding.slice(1,-1).split(',').map(n=>`const ${n.trim()}=stub('${n.trim()}')`).join('\n')
       return `const ${binding}=stub('${binding}')`
     }).replace(/^import ['"].+?['"];?$/gm,'')
-  code=`import {h} from 'vue'; const stub=name=>({inheritAttrs:false,setup:(_,ctx)=>()=>h(name,ctx.attrs,ctx.slots.default?.())});\n`+code
+  code=(realGate?"import RealProviderAccessGate from './.teacher-gate-flow-test.mjs';\n":'')+`import {h} from 'vue'; const stub=name=>({inheritAttrs:false,setup:(_,ctx)=>()=>h(name,ctx.attrs,ctx.slots.default?.())});\n`+code
   await writeFile(output,code+'\n'+template.code.replace('export function render','function render')+'\ncomponent.render=render;export default component;')
 }
 
@@ -236,4 +237,56 @@ test('checkout entry blocks another account, preserves the invoice through login
     fail=false;own=true;await button(retryRoot,'Check again').props.onClick();await flush()
     assert.ok(marker(retryRoot,'SubscriptionBilling'),'Matching account opens its subscription checkout')
   }finally{app?.unmount();Object.assign(globalThis,previous);await unlink(output)}
+})
+
+test('invitation entry preserves destination and offers same-email teacher signup',async()=>{
+  const output=new URL('../src/native/.invitation-entry-ui-test.mjs',import.meta.url)
+  let app
+  try{
+    await compile('InvitationEntry',output)
+    const {default:Entry}=await import(output.href)
+    let signups=0
+    const root={children:[]};app=renderer.createApp(Entry,{signupAvailable:true,onSignup:()=>signups++});app.mount(root);await flush()
+    const link=nodes(root).find(n=>n.tag==='a')
+    assert.equal(link.props.href,'/login?redirect-to=%2Fcampus%23invitations')
+    await button(root,'Create your teacher account').props.onClick();assert.equal(signups,1)
+    assert.ok(nodes(root).some(n=>n.text?.includes('invited email')))
+    app.unmount();app=null
+    const closed={children:[]};app=renderer.createApp(Entry,{signupAvailable:false});app.mount(closed);await flush()
+    assert.equal(button(closed,'Create your teacher account'),undefined)
+  }finally{app?.unmount();await unlink(output).catch(()=>{})}
+})
+
+test('revoked workspace recovery uses server-authorized personal selection and handles failures',async()=>{
+  const output=new URL('../src/native/.workspace-recovery-ui-test.mjs',import.meta.url)
+  const previous={location:globalThis.location,request:globalThis.__teacherFlowRequest}
+  let app,fail=true,reloads=0;const calls=[],destinations=[]
+  globalThis.location={assign:path=>destinations.push(path),reload:()=>reloads++}
+  globalThis.__teacherFlowRequest=async(...args)=>{calls.push(args);if(fail)throw Error('No access');return {selected:'personal'}}
+  try{
+    await compile('WorkspaceAccessChanged',output)
+    const {default:Recovery}=await import(output.href)
+    const root={children:[]};app=renderer.createApp(Recovery,{teacher:true});app.mount(root);await flush()
+    await button(root,'Switch to Personal').props.onClick();await flush()
+    assert.equal(destinations.length,0)
+    assert.equal(reloads,0)
+    assert.ok(nodes(root).some(n=>n.props?.role==='alert'))
+    assert.equal(button(root,'Switch to Personal').props.disabled,false)
+    fail=false;await button(root,'Switch to Personal').props.onClick();await flush()
+    assert.deepEqual(calls.at(-1),['teacher_workspace','open_workspace'])
+    assert.equal(destinations.at(-1),'/campus#dashboard')
+    assert.equal(reloads,1)
+    app.unmount();app=null
+    const student={children:[]};app=renderer.createApp(Recovery,{teacher:false});app.mount(student);await flush()
+    await button(student,'Choose another workspace').props.onClick()
+    assert.deepEqual(calls.at(-1),['campus_context','clear'])
+  }finally{app?.unmount();globalThis.location=previous.location;globalThis.__teacherFlowRequest=previous.request;await unlink(output).catch(()=>{})}
+})
+
+test('only explicit membership revocation produces the workspace recovery signal',async()=>{
+  const {errorDetails}=await import('../src/native/contracts.js')
+  assert.equal(errorDetails({workspace_access_changed:true},403).code,'workspace_access_changed')
+  assert.equal(errorDetails({},403).code,'forbidden')
+  assert.notEqual(errorDetails({workspace_access_changed:true},500).code,'workspace_access_changed')
+  assert.notEqual(errorDetails({workspace_access_changed:'true'},403).code,'workspace_access_changed')
 })

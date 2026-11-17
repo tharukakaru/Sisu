@@ -4,6 +4,7 @@ export const ownerSections = [
   {name:'Organizations',group:'Workspace',icon:'Building2',description:'Register and manage institutes with their own hosted website.'},
   {name:'Plans',group:'Workspace',icon:'Package',description:'Manage subscription prices, included tools and plan descriptions.'},
   {name:'Billing',group:'Finance',icon:'Receipt',description:'Review provider accounts, invoices and payment records.'},
+  {name:'Student-count payments',group:'Finance',icon:'Users',description:'Set the monthly student rate, receiving bank details and review provider receipts.',managersOnly:true},
   {name:'Commerce',group:'Finance',icon:'Wallet',description:'Review commercial reports from your hosted websites.'},
   {name:'Site policies',group:'Platform',icon:'Settings2',description:'Manage website policies and check their delivery status.'},
   {name:'Provisioning',group:'Platform',icon:'Globe2',description:'Track institute website setup and operator tasks.'},

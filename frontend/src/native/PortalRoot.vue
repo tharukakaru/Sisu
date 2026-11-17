@@ -1,23 +1,30 @@
 <script setup>
+import WorkspaceAccessChanged from './WorkspaceAccessChanged.vue'
+import InvitationEntry from './InvitationEntry.vue'
+const invitationEntry=location.hash==='#invitations'
+const workspaceAccessChanged=ref(false)
+function accessChanged(){workspaceAccessChanged.value=true}
+onMounted(()=>window.addEventListener?.('sisu-workspace-access-changed',accessChanged))
+onBeforeUnmount(()=>window.removeEventListener?.('sisu-workspace-access-changed',accessChanged))
 import ExistingAccountDialog from './ExistingAccountDialog.vue'
-import CheckoutEntry from './CheckoutEntry.vue'
+const CheckoutEntry=defineAsyncComponent(()=>import('./CheckoutEntry.vue'))
 const checkoutInvoice=new URLSearchParams(location.search).get('checkout_invoice')
 import {googleSignupEntry} from './existingAccount'
-import ProviderFirstLogin from './ProviderFirstLogin.vue'
-import ProviderOnboardingStatus from './ProviderOnboardingStatus.vue'
+const ProviderFirstLogin=defineAsyncComponent(()=>import('./ProviderFirstLogin.vue'))
+const ProviderOnboardingStatus=defineAsyncComponent(()=>import('./ProviderOnboardingStatus.vue'))
 import PageLoading from '../PageLoading.vue'
 import CampusSwitcher from './CampusSwitcher.vue'
 import PasswordConfirmation from './PasswordConfirmation.vue'
 const passwordConfirmation=location.hash.startsWith('#password-confirm=')
-import GeneralCampus from './GeneralCampus.vue'
+const GeneralCampus=defineAsyncComponent(()=>import('./GeneralCampus.vue'))
 
 import {asyncPage as defineAsyncComponent} from '../asyncPage'
 
-import ProviderAccessGate from './ProviderAccessGate.vue'
+const ProviderAccessGate=defineAsyncComponent(()=>import('./ProviderAccessGate.vue'))
 
-import VerifiedSignup from './VerifiedSignup.vue'
+const VerifiedSignup=defineAsyncComponent(()=>import('./VerifiedSignup.vue'))
 
-import FirebasePush from './FirebasePush.vue'
+const FirebasePush=defineAsyncComponent(()=>import('./FirebasePush.vue'))
 
 const newGoogleSignup=new URLSearchParams(location.search).get('verified_signup')==='1'
 
@@ -31,7 +38,7 @@ import ProviderAccountChoice from './ProviderAccountChoice.vue'
 
 import '@fontsource-variable/manrope'
 
-import {ref,onMounted,computed,nextTick} from 'vue'
+import {ref,onMounted,onBeforeUnmount,computed,nextTick} from 'vue'
 import {rememberTeacherPath,resolveTeacherPath,teacherEntryView} from './teacherEntryPath'
 
 import Icon from '../Icon.vue'
@@ -103,7 +110,7 @@ onMounted(()=>{if(!firebaseTestPage&&!passwordConfirmation){connect();request('p
 
 <template>
 
-<PageLoading v-if="busy&&(!session||newGoogleSignup||(session.member&&!subscription)||(policy.unified_teacher_signup&&session.onboarding_kind==='Teacher'&&!session.member))&&!passwordConfirmation&&!firebaseTestPage"/><PasswordConfirmation v-else-if="passwordConfirmation"/><section v-else-if="firebaseTestPage" class="panel" style="max-width:760px;margin:40px auto;padding:24px"><h1>SISU browser notification test</h1><p>This test uses your configured sandbox account.</p><a href="/sandbox_firebase_login">Sign in as sandbox Administrator</a><FirebasePush/></section>
+<WorkspaceAccessChanged v-if="workspaceAccessChanged" :teacher="session?.role==='Teacher'"/><PageLoading v-else-if="busy&&(!session||newGoogleSignup||(session.member&&!subscription)||(policy.unified_teacher_signup&&session.onboarding_kind==='Teacher'&&!session.member))&&!passwordConfirmation&&!firebaseTestPage"/><PasswordConfirmation v-else-if="passwordConfirmation"/><section v-else-if="firebaseTestPage" class="panel" style="max-width:760px;margin:40px auto;padding:24px"><h1>SISU browser notification test</h1><p>This test uses your configured sandbox account.</p><a href="/sandbox_firebase_login">Sign in as sandbox Administrator</a><FirebasePush/></section>
 
   <PageLoading v-else-if="googleSignupError" :error="googleSignupError"/>
   <ExistingAccountDialog v-else-if="existingGoogleAccount" authenticated/>
@@ -161,8 +168,8 @@ onMounted(()=>{if(!firebaseTestPage&&!passwordConfirmation){connect();request('p
 
     <div class="entry-layout"><WebWelcomeStory :provider="signupPath&&selected==='Teacher'"/>
 
-    <section class="entry-card" :aria-labelledby="signupPath&&selected==='Teacher'?'provider-account-title':signupPath&&selected==='Student'?'learner-signin-title':'role-selection-title'">
-      <LearnerSignIn v-if="signupPath&&selected==='Student'" :google-available="!!policy.google_available" :email-available="!!policy.self_signup_enabled" @email="openStudentEmailSignup" @google="google(true)" @choose-path="signupPath=false"/>
+    <section class="entry-card" :aria-labelledby="invitationEntry?'invitation-entry-title':signupPath&&selected==='Teacher'?'provider-account-title':signupPath&&selected==='Student'?'learner-signin-title':'role-selection-title'">
+      <InvitationEntry v-if="invitationEntry" :signup-available="!!policy.self_signup_enabled" @signup="selected='Teacher';openProviderSignup('Individual Teacher','individual')"/><LearnerSignIn v-else-if="signupPath&&selected==='Student'" :google-available="!!policy.google_available" :email-available="!!policy.self_signup_enabled" @email="openStudentEmailSignup" @google="google(true)" @choose-path="signupPath=false"/>
       <ProviderAccountChoice v-else-if="signupPath&&selected==='Teacher'" @choose="openProviderSignup" @back="signupPath=false"/>
       <template v-else><button v-if="roleChosen||hasPreviousPage" type="button" class="role-back-link" @click="goBack"><ArrowLeft :size="13" :stroke-width="1.7" aria-hidden="true"/>Back</button><h2 id="role-selection-title">Choose your SISU role</h2><p class="role-selection-subtitle">Your next chapter starts here.</p><div class="entry-roles"><button v-for="r in roles" :key="r.name" type="button" @click="chooseRole(r.name)" :class="{selected:roleChosen&&selected===r.name}" :aria-expanded="roleChosen&&selected===r.name" aria-controls="role-selection-actions"><div><strong>{{roleCopy[r.name].title}}</strong><small>{{roleCopy[r.name].description}}</small></div></button></div>
 

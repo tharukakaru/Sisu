@@ -42,6 +42,7 @@ doc_events['IL Enrollment']['validate']='institute_lms.commercial.enforce_enroll
 scheduler_events["cron"]["*/5 * * * *"].append("institute_lms.notification_service.dispatch_adapters")
 scheduler_events["daily"].append("institute_lms.retention.sweep")
 scheduler_events["daily"].append("institute_lms.storage.backfill")
+scheduler_events.setdefault('hourly', []).append('institute_lms.renewal_notices.dispatch')
 doc_events["IL Paper"]={"on_update":"institute_lms.notification_events.paper_changed"}
 doc_events["IL Paper Attempt"]={"on_update":"institute_lms.notification_events.attempt_changed"}
 doc_events["LMS Certificate"]={"after_insert":"institute_lms.notification_events.certificate_issued"}
@@ -114,3 +115,5 @@ update_website_context = "institute_lms.portal_entry.website_context"
 _ai_hook('IL Owner Access', 'on_update', 'institute_lms.admin_mfa.sync_access')
 
 scheduler_events['cron'].setdefault('* * * * *', []).append('institute_lms.session_reminders.dispatch')
+scheduler_events['cron'].setdefault('*/5 * * * *', []).append('institute_lms.student_renewals.dispatch')
+scheduler_events['daily'].append('institute_lms.student_count.daily')

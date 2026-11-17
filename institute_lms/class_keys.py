@@ -28,12 +28,13 @@ def send_key(user,reference,room,key):
           'Payment accepted for '+room.title[:100]+'. Your personal enrollment key: '+key+
           '. Expires in 15 minutes. Only your account can use it, once. Open My classrooms to enroll. If expired, choose Resend enrollment key; no second payment is needed.')
 
-def issue(invoice,room,start,end):
+def issue(invoice,room,start,end,access_kind=None):
     from .commercial import grant
     key=new_key()
-    grant(invoice,room,start,end,'Bank transfer',enrollment_key_hash=digest(key))
+    access=grant(invoice,room,start,end,'Bank transfer',enrollment_key_hash=digest(key),access_kind=access_kind)
     user=frappe.db.get_value('IL Member',invoice.student,'user')
     send_key(user,invoice.name,room,key)
+    return access
 
 
 @frappe.whitelist(methods=['POST'])

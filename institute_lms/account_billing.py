@@ -171,6 +171,8 @@ def public_account(a):
     result['next_monthly_minor'] = price(a, a.next_plan) if a.next_plan else None
     result['billing_ready'] = bool(provider_lkr(a) or (a.billing_country and a.country_status in ('Verified','Change requested')))
     result['currency'] = currency_for(a)
+    from .renewal_rules import window
+    result.update(window(a, now_datetime()))
     return result
 
 def countries():
@@ -289,8 +291,12 @@ def make_invoice(a, start_paid=False, draft=False):
     now=now_datetime()
     if now<get_datetime(a.trial_until) and not a.paid_until and not a.get('onboarding_payment_required') and not start_paid:
         frappe.throw('Your free trial is still active. Billing begins after it ends.')
+    from .renewal_rules import window, period_start
     if a.paid_until and now<get_datetime(a.paid_until):
-        frappe.throw('Your subscription is already paid. Your next invoice is created on the renewal date.')
+        if not window(a, now)['renewal_available']:
+            frappe.throw('Renewal opens four days before your current access ends.')
+        if a.next_plan and a.next_plan != a.plan:
+            frappe.throw('Your scheduled plan change is available on the renewal date. Keep your current plan to renew early.')
     existing=frappe.db.get_value(INVOICE,{'subscription':a.name,'status':['in', OPEN_INVOICES]},'name')
     if existing:
         bill=frappe.get_doc(INVOICE,existing,for_update=True)
@@ -299,7 +305,7 @@ def make_invoice(a, start_paid=False, draft=False):
         assert_no_active('subscription', bill.name)
         bill.status='Void'; bill.open_key=None; save(bill)
     # A lapsed account resumes from a new checkout date; no fees for locked-out months.
-    start=get_datetime(a.paid_until) if a.paid_until and now-get_datetime(a.paid_until)<timedelta(days=1) else now
+    start=period_start(a, now)
     anchor=int(a.anchor_day or start.day) if a.paid_until and start==get_datetime(a.paid_until) else start.day
     plan=a.next_plan or a.plan
     return save(frappe.get_doc(dict(doctype=INVOICE,subscription=a.name,open_key=a.name,plan=plan,country=a.billing_country,

@@ -5,6 +5,7 @@ export function classroomNavigation(role, {instituteTeacher=false,unifiedTeacher
     {id:'schedule',icon:'CalendarDays'},
     ...(role==='Student'?[{id:'study',icon:'Coffee'}]:[]),
     ...(role==='Admin'?[{id:'team',icon:'Users'},{id:'people',icon:'Users'}]:[]),
+    ...(['Admin','Teacher'].includes(role)?[{id:'students',icon:'GraduationCap'}]:[]),
     {id:'connections',icon:'Search'},
     ...(role==='Teacher'?[{id:'invitations',icon:'Mail'}]:[]),
     ...(role==='Teacher'&&unifiedTeacher?[{id:'join-institute',icon:'Building2'}]:[]),

@@ -29,15 +29,15 @@ def configure():
         frappe.db.set_single_value('System Settings', 'enable_scheduler', 1)
         from frappe.core.doctype.scheduled_job_type.scheduled_job_type import sync_jobs
         sync_jobs()
-        job_name = frappe.db.get_value('Scheduled Job Type',
-            {'method': 'institute_lms.session_reminders.dispatch'}, 'name')
-        if not job_name:
-            raise RuntimeError('Class reminder scheduler hook is missing')
-        job = frappe.get_doc('Scheduled Job Type', job_name)
-        job.queue = 'short'
-        job.stopped = 0
-        job.create_log = 1
-        job.save(ignore_permissions=True)
+        for method in ('institute_lms.session_reminders.dispatch', 'institute_lms.student_renewals.dispatch'):
+            job_name = frappe.db.get_value('Scheduled Job Type', {'method': method}, 'name')
+            if not job_name:
+                raise RuntimeError('Class reminder scheduler hook is missing: ' + method)
+            job = frappe.get_doc('Scheduled Job Type', job_name)
+            job.queue = 'short'
+            job.stopped = 0
+            job.create_log = 1
+            job.save(ignore_permissions=True)
         frappe.db.commit()
         frappe.clear_cache()
         print('Local campus scheduler enabled; 15-second tick; scheduled jobs synced.')
