@@ -8,7 +8,7 @@ APP=ROOT/'apps/institute_lms'
 SITE='invoice-test.local'
 UNIT='sisu-invoice-preview.service'
 ARCHIVE=Path('/tmp/sisu-isolated-preview.tgz')
-DIGEST='6f8497c659a0762bef20acb139b2db92c098cc2d2cdfb6006733082ea5785807'
+DIGEST='9dee51e56bb3cf96ae26be010dd8139f681c7cb2794bfb797c2d9690c64ea34a'
 
 def run(cmd, log, user=True):
     subprocess.run((['sudo','-H','-u','sisu','--'] if user else [])+cmd,cwd=ROOT,stdout=log,stderr=log,check=True)
