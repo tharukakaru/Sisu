@@ -82,9 +82,6 @@ def membership(name,status):
     from .campus_teachers import sync
     sync(r,target_workspace,status)
     r.status=status;r.reviewed_by=m.user;write(r)
-    if status=='Active':
-        from .teacher_approval_notice import queue
-        queue(r.name)
     if status in ('Left','Removed'):
         teachers=frappe.get_all('IL Member',filters={'user':r.user,'institute':target_workspace,'role':'Teacher'},pluck='name')
         for room in frappe.get_all('IL Classroom',filters={'institute':target_workspace,'public_provider':r.profile,'teacher':['in',teachers or ['__none__']],'owner_type':'Institute'},pluck='name'):

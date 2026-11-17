@@ -9,6 +9,15 @@ SOURCES = {
  'teacher-workspace': ('sunlit-teacher-workspace.png', [640, 1024, 1672]),
  'mobile-phones': ('sisu-three-phones.png', [640, 1024, 1536]),
 }
+def optimize_book_covers():
+ report = {}
+ for source in sorted((ROOT / 'Book Cover').glob('*/*.png')):
+  image = ImageOps.exif_transpose(Image.open(source)).convert('RGB')
+  target = source.with_suffix('.webp')
+  image.save(target, quality=90, method=6)
+  report[str(target.relative_to(ROOT))] = dict(original_bytes=source.stat().st_size, bytes=target.stat().st_size)
+ return report
+
 def main():
  report = {}
  for name, (source, widths) in SOURCES.items():
@@ -24,6 +33,7 @@ def main():
  sprite = Image.open(ROOT / 'testimonial-portraits.png').convert('RGB')
  sprite.thumbnail((832,416),Image.Resampling.LANCZOS)
  sprite.save(ROOT / 'testimonial-portraits.webp', quality=90,method=6)
+ report['book_covers'] = optimize_book_covers()
  print(json.dumps(report,indent=2))
 if __name__ == '__main__':
  main()
