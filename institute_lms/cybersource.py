@@ -13,6 +13,7 @@ import frappe
 from frappe.utils import now_datetime, get_datetime, get_url
 from .cybersource_contract import minor, origin, session_request, verify_transaction, authentication_only
 from .cybersource_transport import request, ProviderUnavailable, SessionRejected
+from .checkout_captcha import verify as verify_checkout, public_settings as captcha_settings
 
 DT = 'IL CyberSource Attempt'
 KINDS = {'tuition': 'IL Invoice', 'subscription': 'IL Account Invoice', 'platform': 'IL Provider Invoice', 'usage': 'IL Usage Invoice'}
@@ -236,7 +237,7 @@ def availability(kind, invoice):
     configured = (isinstance(root, dict) and root.get('enabled') is True
                   and root.get('mode') in ('sandbox', 'live')
                   and (root.get('mode') == 'sandbox' or root.get('live_checkout_approved') is True))
-    result = {'paused': payment_paused(),
+    result = {'captcha': captcha_settings(), 'paused': payment_paused(),
             'available': bool(not payment_paused() and configured and scope in (root.get('merchants') or {})),
             'mode': root.get('mode') if configured else 'unavailable'}
     if result['available'] and kind == 'subscription' and frappe.conf.get('il_local_card_test') is True:
@@ -248,7 +249,7 @@ def availability(kind, invoice):
 
 
 @frappe.whitelist(methods=['POST'])
-def start(kind, invoice):
+def start(kind, invoice, captcha_token=None):
     if payment_paused():
         frappe.throw("Payment gateway isn't connected yet. Please try again later.")
     # Source invoice lock serializes creation across tabs and requests.
@@ -271,6 +272,7 @@ def start(kind, invoice):
             a.status = 'cancelled'; a.active_key = None; save(a)
             return dict(public(a), mode=c['mode'])
         if resumable(a):
+            verify_checkout(captcha_token)
             return checkout_access(a, c['mode'])
         # A guarded session with no consumed submission grant was never sent for
         # processing by this integration. Once its context expires, renew it.
@@ -293,6 +295,7 @@ def start(kind, invoice):
         limit('cybersource-start:' + frappe.session.user)
     except frappe.ValidationError:
         frappe.throw('Too many new payment sessions. Wait before opening another checkout; you can still check an existing payment.')
+    verify_checkout(captcha_token)
     reference = 'sisu-' + uuid.uuid4().hex
     body = session_request(reference, total, currency, c['origin'], c['methods'])
     a = save(frappe.get_doc(dict(doctype=DT, reference=reference, active_key=active_key,

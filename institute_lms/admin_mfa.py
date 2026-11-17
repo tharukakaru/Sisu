@@ -21,8 +21,10 @@ def enabled():
 def required(user):
     if not enabled() or not user or user == 'Guest':
         return False
-    from .owner_access import is_owner
-    return user == 'Administrator' or is_owner(user)
+    from .owner_access import access_level
+    # Full Administrators and the primary owner use password authentication.
+    # Only delegated Admin access requires the SMS second factor.
+    return user != 'Administrator' and access_level(user) == 'Admin'
 
 
 def raw_key(value):
@@ -130,7 +132,7 @@ def clear_challenge(tmp):
 
 
 def validate_login(login_manager=None):
-    """All new admin sessions need a successfully delivered, one-use SMS proof.
+    """Delegated Admin sessions need a delivered, one-use SMS proof.
 
     This also blocks password-only OAuth/email-link/login_as paths for admins.
     Native Frappe has already verified the password and OTP before this hook.
@@ -157,7 +159,9 @@ def sync_access(doc, method=None):
 
 
 def enroll(user, phone=None):
-    if not frappe.db.exists('Role', ROLE):
+    """Synchronize the dedicated MFA role with server-authoritative access."""
+    needs_sms = required(user)
+    if needs_sms and not frappe.db.exists('Role', ROLE):
         frappe.get_doc({'doctype': 'Role', 'role_name': ROLE, 'desk_access': 0,
                         'two_factor_auth': 1}).insert(ignore_permissions=True)
     doc = frappe.get_doc('User', user)
@@ -165,7 +169,20 @@ def enroll(user, phone=None):
         # Frappe also reads phone for SMS. mobile_no is a unique login identifier;
         # the local QA admins intentionally share one verification handset.
         doc.phone = phone
-    if ROLE not in [r.role for r in doc.roles]:
+    if needs_sms and ROLE not in [r.role for r in doc.roles]:
         doc.append('roles', {'role': ROLE})
+    elif not needs_sms:
+        doc.set('roles', [r for r in doc.roles if r.role != ROLE])
     doc.save(ignore_permissions=True)
     frappe.clear_cache(user=user)
+
+
+def sync_all():
+    """Deployment migration; never change other sites or other MFA roles."""
+    if not enabled():
+        return
+    users = set(frappe.get_all('IL Owner Access', pluck='user'))
+    users.update(frappe.get_all('Has Role', filters={'role': ROLE, 'parenttype': 'User'}, pluck='parent'))
+    for user in sorted(users):
+        if frappe.db.exists('User', user):
+            enroll(user)

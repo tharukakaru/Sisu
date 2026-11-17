@@ -58,6 +58,8 @@ class AdminMfaTests(unittest.TestCase):
         f.local = types.SimpleNamespace(login_manager=self.manager, request_ip='127.0.0.1', response={})
         owner = types.ModuleType('institute_lms.owner_access')
         owner.is_owner = lambda user: user == self.user
+        owner.access_level = lambda user: 'Admin' if user == self.user else None
+        self.owner = owner
         invite = types.ModuleType('institute_lms.admin_invites')
         invite.throttle = Mock()
         notify = types.ModuleType('institute_lms.notify_platform')
@@ -142,13 +144,31 @@ class AdminMfaTests(unittest.TestCase):
     def test_proof_cannot_be_used_by_another_user(self):
         self.challenge()
         self.m.before_login(self.manager)
-        self.manager.user = 'Administrator'
+        self.manager.user = 'other-admin@example.test'
+        self.owner.access_level = lambda user: 'Admin'
         with self.assertRaises(PermissionError): self.m.validate_login(self.manager)
 
     def test_non_admin_is_unchanged(self):
         self.manager.user = 'student@example.test'
         self.m.validate_login(self.manager)
         self.assertFalse(self.f.flags.get('il_admin_mfa_verified'))
+
+    def test_full_administrators_do_not_require_sms(self):
+        for level in ('Primary', 'Administrator'):
+            with self.subTest(level=level):
+                self.owner.access_level = lambda user: level
+                self.assertFalse(self.m.required(self.user))
+                self.m.validate_login(self.manager)
+        self.assertFalse(self.m.required('Administrator'))
+        self.notify.send.assert_not_called()
+
+    def test_access_level_change_is_rechecked(self):
+        self.assertTrue(self.m.required(self.user))
+        self.owner.access_level = lambda user: 'Administrator'
+        self.assertFalse(self.m.required(self.user))
+        self.owner.access_level = lambda user: 'Admin'
+        with self.assertRaises(PermissionError):
+            self.m.validate_login(self.manager)
 
     def test_disabled_flag_and_campus_are_unchanged(self):
         for key in ('il_control_plane', 'il_admin_sms_mfa_enabled'):

@@ -19,11 +19,13 @@ add_to_apps_screen = [{"name": "institute_lms", "title": "Sisu", "route": "/camp
 
 on_session_creation = "institute_lms.portal_policy.stamp_session"
 on_login = ["institute_lms.portal_policy.validate_login", "institute_lms.admin_mfa.validate_login"]
-before_login = "institute_lms.admin_mfa.before_login"
+before_login = ["institute_lms.request_security.before_login", "institute_lms.admin_mfa.before_login"]
+before_request = "institute_lms.request_security.guard"
+after_request = "institute_lms.request_security.response_headers"
 send_token_via_sms = "institute_lms.admin_mfa.send_token"
 # Native OTP login clears the site cache when its second request has no usr.
 # Authentication proofs and rate limits must survive that cache refresh.
-persistent_cache_keys = ['il_admin_mfa:', 'il_admin_invite_rl_v2:mfa-']
+persistent_cache_keys = ['il_admin_mfa:', 'il_admin_invite_rl_v2:mfa-', 'il_request_budget:', 'il_signup_limit:', 'il_verification_5m:']
 
 # Authentication hook order matters: establish mobile identity before authorization.
 auth_hooks = ["institute_lms.mobile_auth.authenticate", "institute_lms.account_billing.guard_request", "institute_lms.saas.guard_request", "institute_lms.native_access.guard"]

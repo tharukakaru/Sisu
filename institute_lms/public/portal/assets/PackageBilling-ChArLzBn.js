@@ -1,0 +1,1 @@
+import{S as a}from"./SubscriptionBilling-BugEyudX.js";import{a as o,c as i}from"./index-AksXI81t.js";const l={__name:"PackageBilling",emits:["changed"],setup(r,{emit:t}){const n=t;return(s,e)=>(o(),i(a,{onChanged:e[0]||(e[0]=c=>n("changed"))}))}};export{l as default};

@@ -3,6 +3,7 @@ import {ref,computed,onMounted,onBeforeUnmount,nextTick,watch} from 'vue'
 import {request} from './client'
 import {loadCheckoutLibrary,paymentMessage,reusableCheckout} from './cybersourceCheckout'
 import Icon from '../Icon.vue'
+import CheckoutCaptcha from './CheckoutCaptcha.vue'
 
 const props=defineProps({invoice:{type:String,required:true},kind:{type:String,default:'tuition'},visible:{type:Boolean,default:true},review:Boolean})
 const emit=defineEmits(['changed','screen-change'])
@@ -44,6 +45,8 @@ const heldStatus=ref(null),clock=ref(Date.now())
 const preparing=ref(false),loadingText=ref(''),loadingSince=ref(0),retryLoading=ref(false)
 const reloadRequired=ref(false)
 const checkoutUrl=ref('')
+const captcha=ref({required:false,configured:false,site_key:''}),captchaToken=ref(''),captchaWidget=ref(null)
+const captchaNeeded=computed(()=>captcha.value.required&&!checkoutUrl.value&&!retained.value&&!(queuedContext?.session&&queuedContext.session_expires*1000>clock.value))
 let session,queuedContext,disposed=false,generation=0,clockTimer=setInterval(()=>{clock.value=Date.now()},1000)
 function loadingStep(text){preparing.value=true;loadingText.value=text;loadingSince.value=Date.now();clock.value=Date.now()}
 function measure(stage,started){if(['localhost','checkout.localhost','127.0.0.1'].includes(location.hostname))console.debug('[SISU checkout timing]',stage,Math.round(performance.now()-started)+'ms')}
@@ -55,7 +58,7 @@ const verificationPaused=computed(()=>awaitingVerification.value&&verificationCh
 async function resumeVerification(){verificationChecks.value=0;await verify()}
 const needsReview=computed(()=>heldStatus.value?.status==='review'&&!heldStatus.value?.resume_allowed)
 const buttonLabel=computed(()=>checkoutUrl.value?'Continue to secure checkout':reloadRequired.value?'Reload page':paid.value?'Payment verified':busy.value?'Opening checkout…':heldStatus.value?.session_unavailable?'Retry opening checkout':retryLoading.value?'Retry loading checkout':retained.value?'Resume card checkout':remaining.value?`Retry available in ${retryCountdown.value}`:blocked.value?'Check and reopen checkout':props.review?'Continue to card payment':'Pay securely · LKR')
-onMounted(async()=>{try{const r=await request('cybersource','availability',{kind:props.kind,invoice:props.invoice});available.value=r.available;paused.value=!!r.paused;gatewayMode.value=r.mode||'unavailable';checkoutUrl.value=r.checkout_url||'';if(checkoutUrl.value)message.value='Continue on the secure checkout site with this same invoice. You may need to sign in again. Opening checkout does not charge you.';await nextTick();if(!disposed&&props.review)observeScreen()}catch{available.value=false}})
+onMounted(async()=>{try{const r=await request('cybersource','availability',{kind:props.kind,invoice:props.invoice});captcha.value=r.captcha||{required:false,configured:false};available.value=r.available;paused.value=!!r.paused;gatewayMode.value=r.mode||'unavailable';checkoutUrl.value=r.checkout_url||'';if(checkoutUrl.value)message.value='Continue on the secure checkout site with this same invoice. You may need to sign in again. Opening checkout does not charge you.';await nextTick();if(!disposed&&props.review)observeScreen()}catch{available.value=false}})
 function cleanup(){try{session?.destroy()}catch{}session=null;retained.value=false;showForm(false)}
 function pause(){
  preparing.value=false
@@ -76,6 +79,7 @@ async function pay(){
  if(checkoutUrl.value){location.assign(checkoutUrl.value);return}
  if(reloadRequired.value){location.reload();return}
  if(paused.value){popup.value=true;return}
+ if(captchaNeeded.value&&!captchaToken.value){message.value="Complete the verification checkbox to continue.";return}
  busy.value=true
  clearTimeout(verificationTimer);verificationChecks.value=0
  heldStatus.value=null
@@ -88,8 +92,9 @@ async function pay(){
  try{
   if(!session?.canResume()){
    cleanup()
-   let r=queuedContext?.session_expires*1000>Date.now()?queuedContext:await request('cybersource','start',{kind:props.kind,invoice:props.invoice})
-   if(r.retry_allowed)r=await request('cybersource','start',{kind:props.kind,invoice:props.invoice})
+   let r=queuedContext?.session_expires*1000>Date.now()?queuedContext:await request('cybersource','start',{kind:props.kind,invoice:props.invoice,captcha_token:captchaToken.value})
+   if(r.retry_allowed)r=await request('cybersource','start',{kind:props.kind,invoice:props.invoice,captcha_token:captchaToken.value})
+   captchaWidget.value?.reset();captchaToken.value='';
    measure('session response',started)
    attempt.value=r.name;gatewayMode.value=r.mode||gatewayMode.value
    submissionGrant=r.submission_grant||null
@@ -132,6 +137,7 @@ async function pay(){
   cleanup();busy.value=false
   await verify()
  }catch(e){
+  if(stage==='session-request'){captchaWidget.value?.reset();captchaToken.value=''}
   if(disposed||current!==generation)return
   const cancelled=/CANCEL|CLOSE/i.test(e?.reason||e?.code||e?.name||'')
   if(cancelled&&session?.canResume()){
@@ -154,7 +160,9 @@ async function pay(){
 }
 </script>
 <template><div v-if="available||paused" class="cybs-payment" :class="{'review-payment':review}">
- <button v-if="!paid&&!needsReview&&!awaitingVerification&&!(review&&busy&&retained)" type="button" class="checkout-primary" :class="review ? '' : 'button primary small'" :disabled="busy||paid||remaining>0" @click="pay"><Icon v-if="review" :name="paid?'CircleCheck':remaining?'Clock3':'LockKeyhole'" :size="18"/><span>{{buttonLabel}}</span><Icon v-if="review&&!busy&&!paid&&!remaining" name="ArrowRight" :size="18"/></button>
+ <CheckoutCaptcha v-if="captchaNeeded&&captcha.configured&&!paid&&!awaitingVerification&&!needsReview" ref="captchaWidget" :site-key="captcha.site_key" @token="captchaToken=$event"/>
+ <p v-if="captchaNeeded&&!captcha.configured" role="alert">Checkout verification is awaiting configuration. Please contact SISU support.</p>
+ <button v-if="!paid&&!needsReview&&!awaitingVerification&&!(review&&busy&&retained)" type="button" class="checkout-primary" :class="review ? '' : 'button primary small'" :disabled="busy||paid||remaining>0||(captchaNeeded&&!captchaToken)" @click="pay"><Icon v-if="review" :name="paid?'CircleCheck':remaining?'Clock3':'LockKeyhole'" :size="18"/><span>{{buttonLabel}}</span><Icon v-if="review&&!busy&&!paid&&!remaining" name="ArrowRight" :size="18"/></button>
  <section v-if="awaitingVerification||paid||needsReview" class="verification-state" :class="{'verification-success':paid,'verification-delayed':verificationPaused||needsReview}" role="status" aria-live="polite" aria-atomic="true">
   <span class="verification-symbol"><Icon v-if="paid" name="CircleCheck" :size="28"/><Icon v-else-if="verificationPaused||needsReview" name="Clock3" :size="27"/><span v-else class="checkout-spinner" aria-hidden="true"></span></span>
   <div><h3>{{paid?'Payment confirmed':needsReview?'Your payment needs review':verificationPaused?'Confirmation is taking longer':'Please wait…'}}</h3>
