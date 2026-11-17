@@ -48,7 +48,13 @@ def current_institute():
     selected = selected_institute()
     if not selected:
         frappe.throw('Choose an institute to continue.', frappe.PermissionError)
-    membership(selected)
+    try:
+        membership(selected)
+    except frappe.PermissionError:
+        # A stable UI signal, only for loss of the selected workspace membership.
+        # Ordinary classroom permission failures must not trigger a workspace switch.
+        frappe.local.response['workspace_access_changed'] = True
+        raise
     return frappe.get_doc('IL Institute', selected)
 
 

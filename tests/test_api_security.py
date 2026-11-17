@@ -59,6 +59,28 @@ class ApiAuthorization(unittest.TestCase):
         self.frappe.get_doc.return_value=Record(institute='institute-B')
         with self.assertRaises(PermissionDenied): self.api.scoped('IL Classroom','foreign',self.inst)
 
+    def test_roster_names_are_resolved_only_in_authorized_institute(self):
+        rows=[Record(name='E1',student='S1'),Record(name='E2',student='foreign')]
+        with patch.object(self.api,'classroom_for',return_value=(self.inst,None,Record(name='C1'))), patch.object(self.frappe,'get_all',side_effect=[rows,[Record(name='S1',full_name='Amaya Silva')]],create=True) as query:
+            result=self.api.enrollments('C1')
+        self.assertEqual(result[0]['student_name'],'Amaya Silva')
+        self.assertEqual(result[0]['student_number'],'S1')
+        self.assertEqual(result[1]['student_name'],'Student name unavailable')
+        filters=query.call_args.kwargs['filters']
+        self.assertEqual(filters['institute'],'institute-A')
+        self.assertEqual(filters['role'],'Student')
+        self.assertEqual(query.call_args.kwargs['fields'],['name','full_name'])
+
+    def test_roster_authorization_precedes_person_lookup(self):
+        with patch.object(self.api,'classroom_for',side_effect=PermissionDenied), patch.object(self.frappe,'get_all',create=True) as query:
+            with self.assertRaises(PermissionDenied): self.api.enrollments('foreign')
+            query.assert_not_called()
+
+    def test_empty_roster_skips_person_lookup(self):
+        with patch.object(self.api,'classroom_for',return_value=(self.inst,None,Record(name='C1'))), patch.object(self.frappe,'get_all',return_value=[],create=True) as query:
+            self.assertEqual(self.api.enrollments('C1'),[])
+            self.assertEqual(query.call_count,1)
+
     def test_student_cannot_create_or_change_classroom(self):
         with patch.object(self.api,'identity',return_value=(self.inst,Record(name='student',role='Student'))):
             with self.assertRaises(PermissionDenied): self.api.save_classroom({})

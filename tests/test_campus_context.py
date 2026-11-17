@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 class CampusContextTests(TestCase):
     def setUp(self):
         self.f = NS(conf={'il_shared_campus_enabled': 1}, session=NS(user='student', data={}),
-                    db=MagicMock(), get_doc=MagicMock(), local=NS(session_obj=MagicMock()),
+                    db=MagicMock(), get_doc=MagicMock(), local=NS(session_obj=MagicMock(), response={}),
                     PermissionError=PermissionError, whitelist=lambda **kw: lambda fn: fn)
         self.f.throw = lambda message, exc: (_ for _ in ()).throw(exc(message))
         self.f.db.get_value.side_effect = lambda dt, *a, **kw: 1 if dt == 'User' else NS(name='M1', role='Student', institute='I1')
@@ -47,9 +47,11 @@ class CampusContextTests(TestCase):
         self.f.db.get_value.side_effect = lambda dt, *a, **kw: 1 if dt == 'User' else None
         with self.assertRaises(PermissionError): self.module.current_institute()
         self.f.get_doc.assert_not_called()
+        self.assertTrue(self.f.local.response['workspace_access_changed'])
 
     def test_no_implicit_institute(self):
         with self.assertRaises(PermissionError): self.module.current_institute()
+        self.assertNotIn('workspace_access_changed', self.f.local.response)
         self.f.get_doc.assert_not_called()
 
     def test_clear_returns_to_no_institute_without_deleting_membership(self):

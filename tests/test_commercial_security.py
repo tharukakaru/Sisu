@@ -104,9 +104,10 @@ class Boundaries(unittest.TestCase):
         with self.assertRaises(PermissionError):self.c.account_access(R(institute='I',owner_type='Teacher',owner_user='OTHER'))
     def test_grant_uses_programme_identity_and_no_wallet(self):
         self.c.account_for=lambda *a:R(name='A')
-        def get_doc(*args):return R(programme_enrollment='P') if isinstance(args[0],str) else R(args[0])
+        self.f.db.get_value.return_value=None
+        def get_doc(*args):return R(programme_enrollment='P',student='S',classroom='C',institute='I') if isinstance(args[0],str) else R(args[0])
         self.f.get_doc.side_effect=get_doc
-        self.c.grant(R(name='B',enrollment='E',student='S',amount=135000),R(name='C',institute='I',teacher='T',title='Business'),NOW,datetime(2027,4,16),'Bank transfer')
+        self.c.grant(R(name='B',enrollment='E',student='S',amount=135000,status='Paid'),R(name='C',institute='I',teacher='T',title='Business'),NOW,datetime(2027,4,16),'Bank transfer')
         row=self.c.save.call_args.args[0]
         self.assertEqual(row.product_key,'Programme:P');self.assertEqual(row.gross_minor,13500000)
         self.assertNotIn('payout_wallet',row)

@@ -340,3 +340,31 @@ class BillingService(unittest.TestCase):
             bill.subscription='another-account'
             with self.assertRaisesRegex(ValueError,'unavailable'):
                 self.b.document(bill.name)
+
+    def test_renewal_window_blocks_before_four_days(self):
+        self.a.paid_until=self.now+timedelta(days=4,seconds=1)
+        with self.assertRaisesRegex(ValueError,'four days'):
+            self.b.make_invoice(self.a,start_paid=True,draft=True)
+
+    def test_early_renewal_keeps_remaining_paid_days(self):
+        end=self.now+timedelta(days=4)
+        self.a.paid_until=end
+        bill=self.b.make_invoice(self.a,start_paid=True,draft=True)
+        self.assertEqual(bill.period_start,end)
+        self.assertEqual(bill.period_end,datetime(2027,3,4,10))
+        self.assertEqual(bill.status,'Draft')
+        self.assertIsNone(bill.receipt_number)
+        self.assertEqual(self.b.make_invoice(self.a,start_paid=True,draft=True).name,bill.name)
+
+    def test_early_plan_change_waits_for_renewal_date(self):
+        self.a.paid_until=self.now+timedelta(days=2)
+        self.a.next_plan='Gold'
+        with self.assertRaisesRegex(ValueError,'scheduled plan change'):
+            self.b.make_invoice(self.a,start_paid=True,draft=True)
+
+    def test_teacher_purchase_does_not_discard_free_trial(self):
+        end=self.now+timedelta(days=10)
+        self.a.trial_until=end
+        bill=self.b.make_invoice(self.a,start_paid=True,draft=True)
+        self.assertEqual(bill.period_start,end)
+        self.assertIsNone(self.a.paid_until)
