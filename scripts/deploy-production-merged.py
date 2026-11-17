@@ -17,7 +17,7 @@ from pathlib import Path, PurePosixPath
 BENCH = Path('/home/sisu/frappe-bench')
 APP = BENCH / 'apps/institute_lms'
 ARCHIVE = Path('/tmp/sisu-production-merged.tgz')
-MANIFEST_DIGEST = 'e54ae127ce13bcaeee23881ebc65afb8f404899a6547ad61f00fad41b18bb07f'
+MANIFEST_DIGEST = 'ec6de6e280fe6fc37822a4d1743688238d2f3c2b0dc432cda2f3f35dcfa6dda3'
 SITES = ('staging.sisuacademylk.com', 'sisuacademylk.com',
          'teen.sisuacademylk.com', 'platform.sisuacademylk.com')
 SERVICES = ('frappe-bench-web:frappe-bench-frappe-web', 'frappe-bench-workers:')

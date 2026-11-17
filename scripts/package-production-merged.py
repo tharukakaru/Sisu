@@ -9,7 +9,7 @@ import tarfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BASELINE = '61498d6'
+BASELINE = '3a52e78'
 TEXT = {'.py', '.json', '.vue', '.js', '.mjs', '.css', '.html', '.toml', '.txt'}
 
 
