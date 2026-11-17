@@ -23,7 +23,7 @@ class OwnerAccessTests(unittest.TestCase):
         self.patch.start()
         self.addCleanup(self.patch.stop)
         path = Path(__file__).parents[1] / 'institute_lms/owner_access.py'
-        spec = importlib.util.spec_from_file_location('owner_access_under_test', path)
+        spec = importlib.util.spec_from_file_location('institute_lms.owner_access_under_test', path)
         self.m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.m)
 

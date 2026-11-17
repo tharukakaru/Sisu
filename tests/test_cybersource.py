@@ -141,6 +141,8 @@ class Service(unittest.TestCase):
         self.m=importlib.util.module_from_spec(spec)
         with patch.dict(sys.modules,{'frappe':f,'frappe.utils':u}):spec.loader.exec_module(self.m)
         self.f=f
+        self.m.verify_checkout=MagicMock()
+        self.m.captcha_settings=MagicMock(return_value={'required':False,'configured':False,'site_key':''})
         self.a=Row(name='attempt',reference=REFERENCE,kind='tuition',invoice='invoice',
             merchant_scope='tuition:provider',merchant_id='sandbox_merchant',amount_minor=10000,
             currency='LKR',status='pending',customer='student@test',active_key='tuition:invoice')
@@ -489,6 +491,26 @@ class Service(unittest.TestCase):
         self.assertTrue(result['retry_allowed']);self.assertEqual(self.a.status,'cancelled')
         self.assertIsNone(self.a.active_key);self.m.request.assert_not_called()
         self.m.settle.assert_not_called()
+
+    def test_captcha_rejection_prevents_new_gateway_session(self):
+        reg=types.ModuleType('institute_lms.registration');reg.limit=MagicMock()
+        self.m.verify_checkout.side_effect=ValueError('Complete verification')
+        self.m.request=MagicMock();self.m.save=MagicMock()
+        with patch.dict(sys.modules,{'institute_lms.registration':reg}):
+            with self.assertRaisesRegex(ValueError,'Complete verification'):
+                self.m.start('tuition','invoice',captcha_token='rejected')
+        self.m.verify_checkout.assert_called_once_with('rejected')
+        self.m.request.assert_not_called();self.m.save.assert_not_called()
+        self.f.db.commit.assert_not_called()
+
+    def test_captcha_rejection_does_not_reveal_retained_session(self):
+        self.a.update(session_token='private-signed-session',session_expires=self.m.time.time()+900)
+        self.f.db.get_value.return_value='attempt'
+        self.m.verify_checkout.side_effect=ValueError('Complete verification')
+        self.m.checkout_access=MagicMock()
+        with self.assertRaisesRegex(ValueError,'Complete verification'):
+            self.m.start('tuition','invoice',captcha_token='rejected')
+        self.m.checkout_access.assert_not_called()
 
     def test_duplicate_start_never_returns_a_second_context(self):
         reg=types.ModuleType('institute_lms.registration');reg.limit=MagicMock()

@@ -1,10 +1,12 @@
 """Opt-in sandbox self signup; immutable contact proofs, no client-selected roles."""
+from .message_templates import verification_sms
 import hashlib
 import hmac
 import json
 import secrets
 import time
 import frappe
+from .message_templates import add_email_design
 from . import signup_rules as rules
 
 
@@ -76,6 +78,8 @@ def send_email(address,code):
     message=EmailMessage();message['From']='SISU Academy <noreply@sisuacademylk.com>'
     message['To']=address;message['Subject']='Your SISU signup verification code';message['Message-ID']=make_msgid(domain='sisuacademylk.com')
     message.set_content('Your SISU verification code is '+code+'. It expires in 10 minutes. Ignore this email if you did not request it.')
+    from .message_templates import verification_body
+    add_email_design(message, verification_body(code), title='Verify your email', label='VERIFY YOUR EMAIL')
     queue=frappe.get_doc({'doctype':'Email Queue','sender':message['From'],'email_account':account.name,
         'message':message.as_string(),'message_id':message['Message-ID'],'status':'Not Sent',
         'recipients':[{'recipient':address,'status':'Not Sent'}]}).insert(ignore_permissions=True)
@@ -100,7 +104,7 @@ def issue(token,state,channel):
     else:
         from .providers import sms
         channel_name=frappe.conf.get('il_self_signup_phone_channel')
-        if channel_name=='SMS':sms(state['details']['phone'],'Your SISU code is '+code+'. Expires in 10 minutes.')
+        if channel_name=='SMS':sms(state['details']['phone'],verification_sms(code))
         else:frappe.throw('Phone OTP delivery is not configured. No account can be created yet.')
 
 

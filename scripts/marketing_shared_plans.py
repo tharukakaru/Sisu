@@ -2,7 +2,7 @@
 import re
 MARKER='/* SISU shared plan catalogue v1 */'
 def patch_marketing(source):
-    if MARKER in source:return source
+    if MARKER in source or '/* SISU shared plan catalogue v2:' in source:return source
     def replace(pattern,replacement):
         nonlocal source
         source,n=re.subn(pattern,lambda m:replacement,source,count=1,flags=re.S)

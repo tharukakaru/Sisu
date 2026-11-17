@@ -1,0 +1,6 @@
+filelock==4.2.4
+GitPython==3.2.1
+Pillow==13.0.0
+pypdf==6.21.4
+Markdown==3.8.1
+lxml==6.1.0

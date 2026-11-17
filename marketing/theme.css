@@ -608,7 +608,7 @@ h3 { line-height: 1.25; }
 }
 
 /* Separate English and Sinhala reviews with fictional profile portraits. */
-.voice-track .voice-portrait{width:52px;height:52px;flex:0 0 52px;background-image:url('/marketing/assets/testimonial-portraits.png');background-size:400% 200%;background-repeat:no-repeat;border-radius:50%}
+.voice-track .voice-portrait{width:52px;height:52px;flex:0 0 52px;background-image:url('/marketing/assets/testimonial-portraits.webp');background-size:400% 200%;background-repeat:no-repeat;border-radius:50%}
 .voice-track .voice p[lang="si"]{font-family:'Nirmala UI','Iskoola Pota',sans-serif;line-height:1.95;font-size:16px;color:#eee7f7}
 .voice-track .voice{display:flex;flex-direction:column;min-height:225px}
 .voice-track blockquote{margin:18px 0 0}
@@ -787,3 +787,6 @@ h3 { line-height: 1.25; }
 /* Stacked hero: crop the wide photo to the student and laptop instead of shrinking all of it, so she reads at phone size */
 @media(max-width:1100px){.hero-photo .hero-media{aspect-ratio:3/2}.hero-photo .hero-image{object-position:92% bottom}}
 @media(max-width:600px){.hero-photo .hero-media{aspect-ratio:1/1}}
+
+/* Responsive sources share the original image layout without an extra box. */
+.responsive-picture{display:contents}

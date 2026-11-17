@@ -5,6 +5,7 @@ import json
 import secrets
 import time
 import frappe
+from .message_templates import sendmail, verification_body
 from frappe.utils import get_url
 from .registration_contract import registration_details
 
@@ -82,7 +83,7 @@ def request_code(data):
     limit('ip:'+str(frappe.local.request_ip));limit('email:'+details['email'])
     challenge=secrets.token_urlsafe(32);code=f'{secrets.randbelow(1000000):06d}'
     frappe.cache.set_value('il_signup:'+challenge,{'details':details,'digest':digest(challenge,code),'created':int(time.time()),'attempts':0},expires_in_sec=600)
-    frappe.sendmail(recipients=[details['email']],subject='Your Sisu registration code',message=f'<p>Your code is <strong>{code}</strong>.</p><p>It expires in ten minutes. If you did not request it, ignore this email.</p>',delayed=True)
+    sendmail(frappe, recipients=[details['email']],subject='Your Sisu registration code',message=verification_body(code),delayed=True)
     return {'challenge':challenge,'expires_in_seconds':600}
 
 @frappe.whitelist(allow_guest=True, methods=['POST'])

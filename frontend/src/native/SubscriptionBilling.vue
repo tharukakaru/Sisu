@@ -4,11 +4,12 @@ import {request} from './client'
 import Icon from '../Icon.vue'
 import BrandLogo from '../BrandLogo.vue'
 import UsageInvoices from './UsageInvoices.vue'
-import SubscriptionPlanCard from '../pricing/SubscriptionPlanCard.vue'
+import SubscriptionPlanCard from '../pricing/BillingPlanCard.vue'
 import CyberSourcePayment from './CyberSourcePayment.vue'
 const props=defineProps({standalone:Boolean,onboarding:Boolean})
 const emit=defineEmits(['changed'])
 const data=ref(null),busy=ref(false),error=ref(''),notice=ref(''),showPlans=ref(false),showManage=ref(false)
+const coreFeaturesOpen=ref(false)
 const form=ref({plan:'Individual',billing_email:'',payment_method:'Card'})
 const checkoutInvoice=ref(''),checkoutOpen=ref(false),checkoutFormOpen=ref(false)
 const checkoutDialog=ref(null),checkoutClose=ref(null)
@@ -56,7 +57,7 @@ onMounted(async()=>{await run(async()=>{
 })})
 </script>
 <template>
- <main class="billing-page" :class="{'billing-standalone':standalone,'billing-onboarding':onboarding}" :aria-busy="busy">
+ <main class="billing-page" :class="{'billing-standalone':standalone,'billing-onboarding':onboarding,'billing-comparing':showPlans}" :aria-busy="busy">
   <header v-if="standalone&&!onboarding" class="billing-entry"><BrandLogo/><div><a href="/me">Account settings</a><a href="/api/method/logout">Sign out</a></div></header>
   <header class="billing-heading"><div><h2 v-if="onboarding">Subscription details</h2><h1 v-else>Your billing</h1><p>{{onboarding?'Your plan, payment details and receipts.':'Manage your subscription and download your invoices.'}}</p></div><button class="billing-button billing-refresh" :disabled="busy" @click="run(async()=>{await load();emit('changed')})"><Icon name="RotateCcw" :size="16"/>{{busy?'Updating…':'Refresh billing'}}</button></header>
   <p v-if="error" class="billing-message error" role="alert">{{error}}</p><p v-if="notice" class="billing-message" role="status">{{notice}}</p>
@@ -78,7 +79,7 @@ onMounted(async()=>{await run(async()=>{
     <div v-if="account.renewal_available&&account.available&&!account.cancel_at_end" class="billing-scheduled" role="status"><Icon name="CalendarDays" :size="18"/><div><strong>Renewal is open</strong><p>Renew now and keep your remaining days. Your next month starts on {{date(account.access_ends_at)}}.</p><button v-if="canInvoice&&!drafts.length" class="billing-button billing-primary-button" :disabled="busy" @click="invoice">Renew plan<Icon name="ArrowRight" :size="16"/></button></div></div>
     <p v-else-if="account.state==='Active'&&!account.cancel_at_end&&account.renewal_opens_at" class="billing-caption">Renewal opens on {{date(account.renewal_opens_at)}} — four days before your access ends.</p>
     <p v-if="!account.available" class="billing-caption">{{onboarding?'Your institute workspace opens after payment is confirmed.':'Your subscription needs attention. Your workspace reopens once payment is confirmed.'}}</p>
-    <div v-if="showPlans" class="billing-plans" aria-label="Available subscription plans"><SubscriptionPlanCard v-for="p in data.plans" :key="p.plan" :plan="p" :currency="account.currency||'LKR'" :selected="p.plan===(account.next_plan||account.plan)" :disabled="busy||!account.billing_ready" @choose="choose"/><p class="billing-caption">Changes to a paid plan take effect at your next renewal.</p></div>
+    <section v-if="showPlans" class="billing-plan-selection" aria-label="Choose your plan"><header class="plan-selection-heading"><h2>Choose your plan</h2><p>Compare all four plans and explore their included features.</p></header><div class="billing-plans" aria-label="Available subscription plans"><SubscriptionPlanCard v-for="p in data.plans" :key="p.plan" :plan="p" :expanded="coreFeaturesOpen" @update:expanded="coreFeaturesOpen=$event" :currency="account.currency||'LKR'" :selected="p.plan===(account.next_plan||account.plan)" :disabled="busy||!account.billing_ready" @choose="choose"/><p class="billing-caption">Changes to a paid plan take effect at your next renewal.</p></div></section>
    </section>
    <section class="billing-section billing-payment-panel" aria-labelledby="payment-details">
     <div class="billing-section-heading"><h2 id="payment-details">Payment details</h2><button class="billing-link" :aria-expanded="showManage" @click="showManage=!showManage">{{showManage?'Close':'Manage'}}</button></div>
@@ -201,4 +202,17 @@ onMounted(async()=>{await run(async()=>{
 .billing-onboarding{max-width:none;min-height:0;padding:0;--billing-muted:#685b77;--billing-line:#e6ddec;--student-ink:#2c2038;--student-muted:#685b77}.billing-onboarding .billing-heading{margin:0 0 24px}.billing-onboarding .billing-heading h2{font-size:20px;letter-spacing:-.02em;margin:0 0 6px}.billing-onboarding .billing-summary-grid{grid-template-columns:minmax(0,1.35fr) minmax(290px,1fr);align-items:start}.billing-onboarding .billing-section{min-width:0}.billing-onboarding .billing-summary-grid>.billing-section{padding:26px;background:#fff}.billing-onboarding .billing-plan-panel{border-top:3px solid #572b91}.billing-onboarding .billing-plan-price strong{font-size:28px}.billing-onboarding .billing-renewal-date strong{line-height:1.5;max-width:24ch}.billing-onboarding .billing-email p{overflow-wrap:anywhere}.billing-onboarding .billing-email{font-size:14px}.billing-onboarding .billing-button{min-height:44px;white-space:normal}.billing-onboarding .billing-link{min-height:44px}.billing-onboarding .billing-history{padding:24px}.billing-onboarding .billing-plan-row:not(.billing-current-plan){background:white}.billing-onboarding .billing-entry{display:none}
 @media(max-width:850px){.billing-onboarding .billing-summary-grid{grid-template-columns:1fr}.billing-onboarding .billing-summary-grid>.billing-section{padding:22px}}
 @media(max-width:600px){.billing-onboarding .billing-plan-price{margin-left:0}.billing-onboarding .billing-current-plan{gap:20px}.billing-onboarding .billing-plan-price strong{font-size:26px}.billing-onboarding .billing-history{padding:20px}.billing-onboarding .billing-manage :is(input,select){font-size:16px}}
+</style>
+
+<style scoped>
+.billing-page.billing-comparing{max-width:1440px}
+.billing-plan-selection{margin-top:26px;padding:30px 20px 22px;background:#0a0a0a;border-radius:16px;color:#fff;container-type:inline-size}
+.billing-plan-selection .plan-selection-heading{text-align:center;margin:4px 0 30px}
+.billing-plan-selection .plan-selection-heading h2{font-size:clamp(26px,3vw,40px);font-weight:500;letter-spacing:-.035em;color:#fff!important}
+.billing-plan-selection .plan-selection-heading p{color:#ccc;font-size:14px;margin-top:10px}
+.billing-plan-selection .billing-plans{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;align-items:stretch;margin:0}
+.billing-plan-selection .billing-plans>.billing-caption{color:#ccc;text-align:center;margin-top:10px}
+@container(max-width:1000px){.billing-plan-selection .billing-plans{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@container(max-width:440px){.billing-plan-selection .billing-plans{grid-template-columns:1fr}}
+@media(max-width:600px){.billing-plan-selection{padding:24px 12px 18px;margin-inline:-10px}}
 </style>

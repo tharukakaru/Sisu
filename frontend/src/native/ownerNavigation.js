@@ -1,5 +1,6 @@
 export const ownerSections = [
   {name:'Overview',group:'Workspace',icon:'LayoutDashboard',description:'Review your campuses and the work that needs attention.'},
+  {name:'People & connections',group:'Workspace',icon:'Users',description:'Explore students, teachers and institutes, and see how their workspaces and classes connect.',managersOnly:true},
   {name:'Admin access',group:'Workspace',icon:'ShieldCheck',description:'Create admins, send invitations and manage who has full authority.',managersOnly:true},
   {name:'Organizations',group:'Workspace',icon:'Building2',description:'Register and manage institutes with their own hosted website.'},
   {name:'Plans',group:'Workspace',icon:'Package',description:'Manage subscription prices, included tools and plan descriptions.'},

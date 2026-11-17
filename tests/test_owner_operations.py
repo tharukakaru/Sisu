@@ -64,7 +64,7 @@ class OwnerEmailCompatibilityTests(unittest.TestCase):
         f=types.ModuleType('frappe');f.whitelist=lambda **kw:lambda fn:fn;f.db=MagicMock();f.sendmail=MagicMock()
         f.throw=lambda msg:(_ for _ in ()).throw(ValueError(msg))
         with patch.dict(sys.modules,{'frappe':f}):
-            spec=importlib.util.spec_from_file_location('owner_access_email',Path(__file__).parents[1]/'institute_lms/owner_access.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+            spec=importlib.util.spec_from_file_location('institute_lms.owner_access_email',Path(__file__).parents[1]/'institute_lms/owner_access.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
             for name in ('_reset_password','reset_password'):
                 reset=MagicMock(return_value='https://example.test/reset?key=a&x=b')
                 user=types.SimpleNamespace(name='owner@example.test',**{name:reset})

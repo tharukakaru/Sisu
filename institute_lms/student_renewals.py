@@ -48,9 +48,9 @@ def queue_reminder(room, member, now):
         return
     origin = str(frappe.conf.get('host_name') or '').rstrip('/')
     link = origin + '/campus?' + urlencode({'institute':room.institute}) + '#payments'
-    body = (f'SISU: Your paid access to {room.title[:100]} ends on {end:%d %b %Y at %I:%M %p} '
-            f'(Sri Lanka time). Renew in Class fees before it ends to keep joining lessons. '
-            f'Early renewal keeps your remaining paid days. {link}')
+    body = (f'Class renewal reminder\n{room.title[:100]}\n'
+            f'Access ends: {end:%d %b %Y, %I:%M %p} (Sri Lanka time).\n'
+            f'Renew in Class fees to keep joining lessons. Early renewal keeps your remaining paid days.\n{link}')
     event = emit(room.institute, member.name, EVENT, reminder_key(room, end), body,
                  channels=['IN_APP'], classroom=room.name)
     key = hashlib.sha256((event + ':renewal-sms').encode()).hexdigest()

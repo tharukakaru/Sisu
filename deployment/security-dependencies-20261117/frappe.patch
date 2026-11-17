@@ -1,0 +1,25 @@
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -11,18 +11,18 @@
+     # core dependencies
+     "Babel~=2.18.0",
+     "Click~=8.4.1",
+-    "filelock~=3.29.3",
++    "filelock~=4.2.4",
+     "filetype~=1.2.0",
+-    "GitPython~=3.1.45",
++    "GitPython~=3.2.1",
+     "Jinja2~=3.1.6",
+-    "Pillow~=12.3.0",
++    "Pillow~=13.0.0",
+     "PyJWT~=2.15.0",
+     "duckdb~=1.4.3",
+     "pyarrow~=25.0.0",
+     # We depend on internal attributes,
+     # do NOT add loose requirements on PyMySQL versions.
+     "PyMySQL==1.1.2",
+-    "pypdf==6.19.0",
++    "pypdf==6.21.4",
+     "PyPika @ git+https://github.com/frappe/pypika@054ffb18a0a60f3c3f472dcce86116fd86db1188",
+     "mysqlclient==2.2.8",
+     "PyQRCode~=1.2.1",

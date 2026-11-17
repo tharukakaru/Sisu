@@ -2,6 +2,7 @@
 import hashlib
 from html import escape
 import frappe
+from .message_templates import sendmail
 from frappe.utils import now_datetime, get_datetime
 from .renewal_rules import expiry, window
 
@@ -22,9 +23,9 @@ def queue(account, now=None, test=False):
     email=account.billing_email or user
     phone=frappe.db.get_value('IL Verified Phone',{'user':user},'phone')
     label='plan' if account.paid_until else 'personal trial'
-    body=(f'Your SISU {label} ends on {end:%d %b %Y, %I:%M %p} (Sri Lanka time). '
-          'Renewal is open. Open Subscription to continue. Renewing early keeps your remaining days; '
-          'the next month starts when your current access ends. No automatic charge.')
+    body=(f'Renewal is open\nYour SISU {label} ends: {end:%d %b %Y, %I:%M %p} (Sri Lanka time).\n'
+          'Open Subscription to renew. Early renewal keeps your remaining days; '
+          'the next month starts when current access ends. No automatic charge.')
     if test:body='LOCAL QA REMINDER TEST: '+body
     notice=frappe.get_doc(dict(doctype=DT,notice_key=key,subscription=account.name,user=user,
         expires_at=end,email=email,phone=phone,body=body,email_status='Pending',sms_status='Pending')).insert(ignore_permissions=True)
@@ -44,8 +45,8 @@ def deliver(notice):
             row.save(ignore_permissions=True);frappe.db.commit();return
         if row.email_status=='Pending':
             if row.email and row.email==(account.billing_email or row.user) and not row.email.endswith('.invalid'):
-                queued=frappe.sendmail(recipients=[row.email],subject='Your SISU renewal is open',
-                    message='<p>'+escape(row.body)+'</p><p>Sign in to SISU and open Subscription.</p>',
+                queued=sendmail(frappe, recipients=[row.email],subject='Your SISU renewal is open',
+                    message='<p>'+escape(row.body).replace('\n','<br>')+'</p><p>Sign in to SISU and open Subscription.</p>',
                     delayed=True,now=True,reference_doctype=DT,reference_name=row.name)
                 if not queued:raise RuntimeError('Renewal email could not be queued')
                 row.email_status='Queued'

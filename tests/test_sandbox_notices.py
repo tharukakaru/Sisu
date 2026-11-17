@@ -8,7 +8,7 @@ class SandboxNotices(unittest.TestCase):
         self.f=types.ModuleType('frappe');self.f.local=types.SimpleNamespace(site='hnb-checkout.localhost');self.f.conf={'il_signup_notices_enabled':1,'il_self_signup_test_email':'student@example.com','il_self_signup_role_emails':{'Individual Teacher':'teacher@example.com'}}
         self.f.db=MagicMock();self.f.get_doc=MagicMock();self.f.log_error=MagicMock()
         self.modules=patch.dict(sys.modules,{'frappe':self.f});self.modules.start()
-        spec=importlib.util.spec_from_file_location('notice_test',Path(__file__).parents[1]/'institute_lms/sandbox_notices.py');self.m=importlib.util.module_from_spec(spec);spec.loader.exec_module(self.m)
+        spec=importlib.util.spec_from_file_location('institute_lms.notice_test',Path(__file__).parents[1]/'institute_lms/sandbox_notices.py');self.m=importlib.util.module_from_spec(spec);spec.loader.exec_module(self.m)
     def tearDown(self):self.modules.stop()
     def test_daily_window_is_exactly_final_ten_days(self):
         end=datetime(2026,11,30,12)

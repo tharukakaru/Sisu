@@ -28,6 +28,9 @@ class PublicAccountCompletion(TestCase):
         self.complete=function('public_signup','complete',dict(frappe=self.f,ready=lambda:None,rules=signup_rules,read=lambda t:self.state,time=time,hashlib=hashlib,json=json,challenges=self.challenges,google_identity=self.challenges.google_identity,registered_google_account=self.registered))
         self.modules=patch.dict('sys.modules',{'institute_lms.account_confirmations':NS(queue=Mock()),'institute_lms.portal_policy':NS(public=lambda:{'privacy_policy_url':'/privacy','privacy_policy_version':'v1'}),'institute_lms.profiles':NS(write=Mock()),'frappe.utils':NS(now_datetime=lambda:'now')})
         self.modules.start();self.addCleanup(self.modules.stop)
+        # Keep this identity-only suite isolated from Frappe's workspace service.
+        self.teacher_module=patch.dict('sys.modules',{'institute_lms.teacher_workspace':NS(enabled=lambda:False)})
+        self.teacher_module.start();self.addCleanup(self.teacher_module.stop)
     def test_all_account_types_create_identity_without_workspace_privileges(self):
         for kind in ('Student','Individual Teacher','Institute'):
             with self.subTest(kind=kind):

@@ -4,6 +4,7 @@ from datetime import timedelta
 from html import escape
 from urllib.parse import urlsplit
 import frappe
+from .message_templates import sendmail
 from frappe.utils import now_datetime,get_url,get_datetime
 from .registration import limit
 from .contact import email_address
@@ -25,7 +26,7 @@ def invitation_origin():
 
 def send_notice(email,subject,body,invitation=None):
     if not frappe.db.exists('Email Account',{'enable_outgoing':1}):return False
-    queued=frappe.sendmail(recipients=[email],subject=subject,message='<p>'+escape(body)+'</p><p><a href="'+escape(invitation_origin()+'/campus#invitations',quote=True)+'">Review invitations in SISU</a></p>',delayed=True,reference_doctype='IL Teacher Invitation' if invitation else None,reference_name=invitation)
+    queued=sendmail(frappe, recipients=[email],subject=subject,message='<p>'+escape(body)+'</p><p><a href="'+escape(invitation_origin()+'/campus#invitations',quote=True)+'">Review invitations in SISU</a></p>',delayed=True,reference_doctype='IL Teacher Invitation' if invitation else None,reference_name=invitation)
     if invitation:
         if not queued:frappe.throw('The invitation email could not be queued. Check outgoing email settings.')
         frappe.enqueue('institute_lms.invitations.dispatch_invitation',invitation=invitation,enqueue_after_commit=True,queue='short')

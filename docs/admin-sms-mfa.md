@@ -4,6 +4,21 @@
 requires `il_control_plane` and `il_admin_sms_mfa_enabled` in site configuration.
 No site is enabled by installing the code alone.
 
+## Access-level policy (2026-11-17)
+
+Full `Administrator` delegates, the primary owner and the system Administrator
+use password login without the SISU SMS factor. Delegated `Admin` access still
+requires password plus SMS. The access level is read from the server, never from
+the login request. The dedicated MFA role is synchronized on access-level changes
+and invitation acceptance. Other MFA roles are not removed.
+
+After deployment, run the `admin_mfa_levels` migration (or
+`institute_lms.admin_mfa.sync_all` with a database commit) on the platform site,
+clear its cache, and restart web processes to load the policy. Back up existing
+user role assignments first. The migration is a no-op on other sites or when the
+feature is disabled. Verify Administrator password login and Admin SMS enforcement
+before completing deployment. A gateway outage still blocks Admin login.
+
 The local Docker platform site was enabled on 2026-11-15. Its three existing admin
 accounts use the authorized QA handset ending 6212. Student-campus MFA settings
 were not changed. No live site was configured and no changes were pushed.
@@ -31,8 +46,8 @@ credentials are removed after success or challenge invalidation. SMS requests
 have a one-minute cooldown, five requests per account per hour and fifteen per
 IP per hour. Uncertain sends are not automatically retried.
 
-All new admin login sessions require the SMS proof, including attempts through
-OAuth, email links, or `login_as`; admins should use password sign-in. Existing
+All new delegated Admin login sessions require the SMS proof, including attempts through
+OAuth, email links, or `login_as`; Admins should use password sign-in. Existing
 authenticated sessions and separately issued API credentials are not revoked by
 enabling this feature. SMS MFA does not replace account/role authorization.
 

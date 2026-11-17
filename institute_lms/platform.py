@@ -3,6 +3,7 @@ import json
 import uuid
 from datetime import timedelta, datetime
 import frappe
+from .message_templates import sendmail
 from frappe.utils import now_datetime, get_datetime
 from .saas import managed, audit
 from .saas_rules import hostname, resolve, sign, policy, STATES
@@ -223,7 +224,7 @@ def invite_billing_contact(tenant):
     link=reset(send_email=False).replace('/update-password?', '/sisu_password?', 1)
     # Use the configured outgoing account, not the platform owner's login email.
     # Queue in this transaction; do not claim inbox delivery or send before commit.
-    frappe.sendmail(recipients=[d.admin_contact],subject='Your SISU institute billing access',
+    sendmail(frappe, recipients=[d.admin_contact],subject='Your SISU institute billing access',
         message='<p>Your billing access for '+escape(d.title)+' is ready.</p><p><a href="'+escape(link,quote=True)+'">Set your password and sign in</a></p><p>This invitation is for billing access. Website setup is completed separately.</p>',
         delayed=True,redact_message_after_send=True)
     audit('Invite billing contact',tenant,'Password setup email queued')

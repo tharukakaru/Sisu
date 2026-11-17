@@ -22,7 +22,8 @@ def send_config(config,phone,message):
     number = str(phone).lstrip('+')
     if not re.fullmatch(r'94\d{9}', number):
         frappe.throw('Notify SMS requires a Sri Lankan phone number')
-    text = 'SISU: ' + str(message)
+    from institute_lms.message_templates import format_sms
+    text = format_sms(message)
     if len(text) > 621:
         frappe.throw('SMS is too long')
     payload = {k:config[k] for k in ('user_id','api_key','sender_id')}
