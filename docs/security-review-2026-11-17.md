@@ -32,6 +32,8 @@ Existing OTP/session-creation restrictions remain in place. These are initial li
 
 ### High priority: framework-pinned dependencies
 
+**Update:** These six dependency findings were resolved locally in the later [dependency retest](security-dependency-retest-2026-11-17.md). The historical audit and initial upgrade conflict below describe the earlier state. Other follow-ups in this review remain open; no production upgrade has been made.
+
 The installed Python environment audit reported 79 advisory entries (77 distinct IDs) across six packages. An advisory match does not prove the affected path is reachable through SISU, and some entries concern local attacker access. Nonetheless, these require an upgrade plan before production sign-off.
 
 | Installed package | Installed version | Scanner-reported remediation target |
