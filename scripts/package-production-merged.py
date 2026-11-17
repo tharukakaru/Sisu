@@ -10,6 +10,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = '3a52e78'
+# Read-only production inspection confirmed this source remained at bb0085e;
+# the student hotfix shipped compiled assets only. Keep the exception file-specific.
+SOURCE_BASELINES = {'frontend/src/native/ExistingAccountDialog.vue': 'bb0085e'}
 TEXT = {'.py', '.json', '.vue', '.js', '.mjs', '.css', '.html', '.toml', '.txt'}
 
 
@@ -41,7 +44,7 @@ def main():
         data = git('show', commit + ':' + name)
         if name.endswith('.py'):
             ast.parse(data.decode('utf-8-sig'))
-        old = subprocess.run(['git', 'show', BASELINE + ':' + name], cwd=ROOT, capture_output=True)
+        old = subprocess.run(['git', 'show', SOURCE_BASELINES.get(name, BASELINE) + ':' + name], cwd=ROOT, capture_output=True)
         manifest['files'][name] = {'before': fingerprint(name, old.stdout) if old.returncode == 0 else None,
             'sha256': hashlib.sha256(data).hexdigest(),
             'generated': name.startswith('institute_lms/public/portal/') or name == 'institute_lms/www/campus.html'}
