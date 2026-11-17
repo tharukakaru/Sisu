@@ -1,4 +1,4 @@
-"""Install a full merged snapshot ONLY in the isolated invoice preview bench."""
+"""Install a verified incremental merged snapshot ONLY in the isolated invoice preview bench."""
 import hashlib, importlib.util, json, os, pwd, shutil, subprocess, tarfile, time, urllib.request
 from pathlib import Path, PurePosixPath
 from datetime import datetime, timezone
@@ -8,7 +8,7 @@ APP=ROOT/'apps/institute_lms'
 SITE='invoice-test.local'
 UNIT='sisu-invoice-preview.service'
 ARCHIVE=Path('/tmp/sisu-isolated-preview.tgz')
-DIGEST='5fe71e716247d773e8d9c90da4005985b72b5508c89e7466c71be1f1983e2fbb'
+DIGEST='6f8497c659a0762bef20acb139b2db92c098cc2d2cdfb6006733082ea5785807'
 
 def run(cmd, log, user=True):
     subprocess.run((['sudo','-H','-u','sisu','--'] if user else [])+cmd,cwd=ROOT,stdout=log,stderr=log,check=True)
@@ -43,13 +43,26 @@ def main():
     with tarfile.open(ARCHIVE) as archive:
         for item in archive.getmembers():
             p=PurePosixPath(item.name)
-            if p.is_absolute() or '..' in p.parts or not (item.name.startswith('institute_lms/') or item.name=='institute_lms' or item.name=='pyproject.toml'):
+            if p.is_absolute() or '..' in p.parts or not (item.name.startswith('institute_lms/') or item.name=='institute_lms' or item.name=='pyproject.toml' or item.name=='preview-manifest.json'):
                 raise RuntimeError('Unexpected archive path')
             if item.isdir(): continue
             if not item.isfile() or item.name in payload: raise RuntimeError('Unexpected archive entry')
             dst=APP/item.name
             if any(parent.is_symlink() for parent in [dst,*list(dst.parents)[:len(p.parts)]]): raise RuntimeError('Symlink destination')
             payload[item.name]=archive.extractfile(item).read()
+    manifest=json.loads(payload.pop('preview-manifest.json'))
+    for name, expected in manifest.items():
+        p=PurePosixPath(name)
+        if p.is_absolute() or '..' in p.parts or not (name.startswith('institute_lms/') or name=='pyproject.toml'):
+            raise RuntimeError('Unexpected manifest path')
+        dst=APP/name
+        if any(parent.is_symlink() for parent in [dst,*list(dst.parents)[:len(p.parts)]]):
+            raise RuntimeError('Symlink manifest destination')
+        data=payload[name] if name in payload else dst.read_bytes()
+        if expected['text']: data=data.replace(b'\r\n',b'\n')
+        if hashlib.sha256(data).hexdigest()!=expected['sha256']:
+            raise RuntimeError('Preview dependency mismatch: '+name)
+    print('Preview source and asset dependencies verified.',flush=True)
     account=pwd.getpwnam('sisu')
     backup=Path('/home/sisu/.sisu-secrets')/('isolated-preview-'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ'))
     backup.mkdir(mode=0o700);os.chown(backup,account.pw_uid,account.pw_gid)
@@ -80,6 +93,7 @@ def main():
             run([str(ROOT/'env/bin/python'),'-m','pip','install','pyotp==2.11.2'],log)
             run([str(ROOT/'env/bin/python'),'-c','import pyotp, reportlab, pypdf, cryptography'],log)
             run(bench('migrate'),log)
+            run([str(ROOT/'env/bin/python'),'-m','pip','check'],log)
             run(bench('clear-cache'),log);run(bench('clear-website-cache'),log)
             run(bench('set-maintenance-mode','off'),log)
             run(['systemctl','start',UNIT],log,False)
@@ -98,7 +112,7 @@ def main():
                 except Exception:
                     if attempt==11: raise
                     time.sleep(5)
-            print('PREVIEW READY: https://preview.sisuacademylk.com/campus - merged build a907dd9. Production files/services untouched. Test payments, SMS and outgoing email disabled; scheduler disabled. Browser workflow testing still required.',flush=True)
+            print('PREVIEW READY: https://preview.sisuacademylk.com/campus - merged build 5938b1a. Production files/services untouched. Test payments, SMS and outgoing email disabled; scheduler disabled. Browser workflow testing still required.',flush=True)
         except Exception:
             import traceback
             traceback.print_exc(file=log)
