@@ -141,7 +141,7 @@ class FrappeProbeWorkingDirectory(unittest.TestCase):
     def test_both_probes_run_from_sites_directory(self):
         original = Path.cwd()
         with tempfile.TemporaryDirectory() as folder:
-            bench = Path(folder)
+            bench = Path(folder).resolve()  # Windows TEMP may be an 8.3 short path; resolve() below expands it
             (bench / 'sites').mkdir()
             patches = bench / 'apps/institute_lms/institute_lms/patches.txt'
             patches.parent.mkdir(parents=True)
