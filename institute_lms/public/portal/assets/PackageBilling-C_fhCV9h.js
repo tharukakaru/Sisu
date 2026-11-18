@@ -1,1 +1,0 @@
-import{S as a}from"./SubscriptionBilling-CoottRmt.js";import{a as o,c as i}from"./index-6xH1M2HF.js";const l={__name:"PackageBilling",emits:["changed"],setup(r,{emit:t}){const n=t;return(s,e)=>(o(),i(a,{onChanged:e[0]||(e[0]=c=>n("changed"))}))}};export{l as default};

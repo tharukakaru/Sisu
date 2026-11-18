@@ -79,6 +79,10 @@ def save_profile(data):
             from .onboarding import activate
             activate(p)
     if kind!='Student' and p.status=='Pending':owner_notice('Provider profile awaits verification: @'+username,p.name)
+    if kind=='Institute' and p.status=='Pending' and identity_changed:
+        # Only on first submission or a re-review, not on every save.
+        from .provider_review import institute_submitted
+        institute_submitted(p)
     if kind in ('Teacher','Institute'):
         rows=frappe.get_all('IL Registration Request',filters={'email':frappe.session.user,'status':'Approved','email_verified':1},fields=['name','details'],order_by='creation desc',limit_page_length=10)
         for row in rows:
