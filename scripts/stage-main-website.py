@@ -1,12 +1,24 @@
 """Stage the reviewed marketing website without changing DNS or active Nginx."""
+import json
 import os
+import re
 import tarfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 ARCHIVE = Path('/tmp/sisu-main-website.tgz')
 ROOT = Path('/var/www/sisu-marketing-releases')
-EXTENSIONS = {'.html', '.css', '.js', '.svg', '.png', '.jpg', '.jpeg', '.webp', '.woff2', '.mp4', '.webm', '.ico'}
+EXTENSIONS = {'.html', '.css', '.js', '.svg', '.png', '.jpg', '.jpeg', '.webp', '.avif', '.woff2', '.mp4', '.webm', '.ico'}
+
+
+def same_host_links(app, config):
+    """app.js builds LMS links from config.js appUrl; an empty appUrl keeps them on this host."""
+    match = re.search(r'Object\.freeze\((\{.*\})\)', config)
+    try:
+        app_url = json.loads(match.group(1)).get('appUrl') if match else None
+    except ValueError:
+        app_url = None
+    return 'window.SISU_CONFIG' in app and '${base}/campus' in app and app_url == ''
 
 
 def main():
@@ -28,11 +40,12 @@ def main():
                 raise RuntimeError('Unsafe website archive entry')
         if sum(m.size for m in members) > 100 * 1024**2:
             raise RuntimeError('Website archive exceeds expected size')
-        for name in ('index.html', 'app.js', 'style.css', 'theme.css', 'students/index.html', 'teachers/index.html', 'institutes/index.html', 'contact/index.html'):
+        for name in ('index.html', 'app.js', 'config.js', 'style.css', 'theme.css', 'students/index.html', 'teachers/index.html', 'institutes/index.html', 'contact/index.html'):
             if name not in names:
                 raise RuntimeError('Website page missing')
         app = archive.extractfile('app.js').read().decode()
-        if '/campus?signup=1' not in app or "const base='';" not in app:
+        config = archive.extractfile('config.js').read().decode()
+        if not same_host_links(app, config):
             raise RuntimeError('Expected same-host LMS links missing')
         target.mkdir(mode=0o755)
         for member in members:

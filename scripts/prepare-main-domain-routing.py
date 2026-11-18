@@ -2,6 +2,7 @@
 import os
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import time
@@ -82,12 +83,13 @@ def main():
     if not (RELEASE/'index.html').is_file() or not (RELEASE/'app.js').is_file():
         raise RuntimeError('Staged marketing release missing')
     app = (RELEASE/'app.js').read_text()
-    if "const base='';" not in app or '/campus?signup=1' not in app:
+    config = (RELEASE/'config.js').read_text() if (RELEASE/'config.js').is_file() else ''
+    # app.js builds LMS links from config.js appUrl; an empty appUrl keeps them on this host.
+    if 'window.SISU_CONFIG' not in app or '${base}/campus' not in app or not re.search(r'"appUrl"\s*:\s*""', config):
         raise RuntimeError('Same-host LMS links missing')
     result = subprocess.run(['nginx', '-T'], capture_output=True, text=True)
     if result.returncode:
         raise RuntimeError('Existing Nginx configuration invalid')
-    import re
     for declaration in re.findall(r'\bserver_name\s+([^;]+);', result.stdout):
         if set(declaration.split()) & {'sisuacademylk.com', 'www.sisuacademylk.com'}:
             raise RuntimeError('Main domain already has an active routing declaration')
