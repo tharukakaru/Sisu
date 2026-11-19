@@ -10,12 +10,13 @@ import json
 import sys
 ROOT = Path(__file__).resolve().parents[1] / 'marketing' / 'assets'
 SOURCES = {
- 'landing-hero-clean': ('landing-hero-clean.png', [640, 960, 1376]),
  'teacher-workspace': ('sunlit-teacher-workspace.png', [640, 1024, 1672]),
  # Output names follow the source file so a replaced PNG never pairs with copies of an older picture.
  'student-learning-together': ('student-learning-together.png', [480, 768, 1024]),
  'sisu-three-phones': ('sisu-three-phones.png', [640, 1024, 1536]),
  'sisu-academy-learning-studio': ('Sisu Academy Learning Studio.png', [480, 960, 1671]),
+ 'hero': ('HERO.jpg', [640, 960, 1376]),
+ 'hero-mobile': ('Hero mobile 3x2.jpg', [480, 720, 896]),
 }
 
 
